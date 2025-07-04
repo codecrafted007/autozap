@@ -1,0 +1,26 @@
+# Example Workflow with HTTP Action
+name: "notify-on-disk-space"
+description: "Checks disk space and sends a webhook if low."
+trigger:
+  type: "cron"
+  schedule: "0 */1 * * *" # Every hour
+actions:
+  - type: "bash"
+    name: "check-disk-space"
+    command: "df -h / | awk 'NR==2 {print $5}' | sed 's/%//g'" # Get disk usage percentage
+    # (Later, we'd add conditional logic here to only proceed if disk space is low)
+  - type: "http"
+    name: "send-slack-alert"
+    url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    body: |
+      {
+        "text": "ALERT! Disk space on server {{ .ServerName }} is low ({{ .DiskUsage }}%)."
+      }
+    # Optional fields for robustness/validation:
+    timeout: "10s" # e.g., 10 seconds
+    #expect_status: 200 # Expect HTTP 200 OK
+    expect_status: [200, 201] # Could be a list of expected statuses
+    expect_body_contains: "success" # Optional: check if response body contains specific text

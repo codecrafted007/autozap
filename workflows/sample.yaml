@@ -1,0 +1,11 @@
+name: "restart-nginx-example"
+description: "A sample workflow to restart Nginx every 5 minutes."
+trigger:
+  type: "cron"
+  schedule: "*/1 * * * *" # This means every 5 minutes
+actions:
+  - type: "bash"
+    name: "restart-nginx-service"
+    command: "echo 'Simulating Nginx restart...' && echo 'Nginx restart successful for AutoZap example' && exit 0"
+    # The 'exit 0' ensures the command is considered successful for now.
+    # We're just simulating a Bash command for testing the setup.

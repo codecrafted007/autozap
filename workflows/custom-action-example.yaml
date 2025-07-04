@@ -1,0 +1,13 @@
+name: "process-daily-report"
+description: "Triggers an internal custom report generation function."
+trigger:
+  type: "cron"
+  schedule: "0 1 * * *" # Every day at 1 AM
+actions:
+  - type: "custom"
+    name: "generate-sales-report"
+    functionName: "GenerateSalesReport"
+    arguments:
+      report_type: "daily"
+      email_recipients: ["admin@example.com", "manager@example.com"]
+      data_source: "production_db"

@@ -1,0 +1,11 @@
+name: "log-file-changes"
+description: "Monitors a directory for file changes and logs them."
+trigger:
+  type: "filewatch"
+  path: "/tmp/codecrafted" # IMPORTANT: Adjust this path if your test directory is elsewhere
+  events: ["create", "write", "remove"] # Trigger on file creation, writing, or removal
+actions:
+  - type: "bash"
+    name: "log-event-detail"
+    command: "echo 'File event detected! AutoZap workflow triggered.'"
+    # You could also add `ls -l {{ .EventFile }}` here if we had templating.

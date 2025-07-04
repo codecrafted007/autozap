@@ -1,0 +1,14 @@
+name: "check-google-health"
+description: "Pings google.com every minute and logs the response."
+trigger:
+  type: "cron"
+  schedule: "*/1 * * * *" # Every minute
+actions:
+  - type: "http"
+    name: "ping-google"
+    url: "https://www.google.com"
+    method: "GET"
+    timeout: "5s"
+    # expect_status: 200 OR
+    expect_status: [200, 500] #
+    expect_body_contains: "<title>Google</title>" # Or some other expected text
