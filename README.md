@@ -71,7 +71,7 @@ autozap/
 **Install:**
 
 ```bash
-git clone https://github.com/yourusername/autozap.git
+git clone https://github.com/codecrafted007/autozap.git
 cd autozap
 go mod tidy
 ```
