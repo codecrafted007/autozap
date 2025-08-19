@@ -29,7 +29,7 @@ AutoZap is built for:
 * Homelab users or sysadmins who already write shell scripts.
 * Anyone who wants CLI-based task automation with observability.
 
-✅ Current MVP Features
+✅ Current Features
 **CLI Tool:** A command-line interface built with Cobra.
 **Structured Logging:** Blazing-fast, JSON-formatted logs using Zap.
 **YAML Workflow Parsing:** Loads and validates workflows defined in YAML files.
