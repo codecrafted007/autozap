@@ -11,10 +11,10 @@ import (
 
 func ExecuteBashAction(action *workflow.Action) error {
 	if action.Type != workflow.ActionTypeBash {
-		return fmt.Errorf("Invalid action type for ExecuteBashAction: expected %s, got %s", workflow.ActionTypeBash, action.Type)
+		return fmt.Errorf("invalid action type for ExecuteBashAction: expected %s, got %s", workflow.ActionTypeBash, action.Type)
 	}
 	if action.Command == "" {
-		return fmt.Errorf("Bash action command cannot be empty")
+		return fmt.Errorf("bash action command cannot be empty")
 	}
 
 	logger.L().Infow("Executing Bash Action",
@@ -41,7 +41,7 @@ func ExecuteBashAction(action *workflow.Action) error {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			logFields = append(logFields, "exit_code", exitError.ExitCode())
 			logger.L().Errorw("Bash Action failed", logFields...)
-			return fmt.Errorf("bash action %s failed with exit code %d: %w", action.Name, exitError)
+			return fmt.Errorf("bash action %s failed with exit code %d: %w", action.Name, exitError.ExitCode(), exitError)
 		} else {
 			logger.L().Errorw("Bash Action failed", logFields...)
 			return fmt.Errorf("bash action %s failed to execute:  %v", action.Name, err)

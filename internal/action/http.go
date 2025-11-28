@@ -73,7 +73,11 @@ func ExecuteHttpAction(action *workflow.Action) error {
 		}
 		return fmt.Errorf("HTTP request failed for action '%s': %v", action.Name, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.L().Errorw("Failed to close response body", "error", closeErr, "action_name", action.Name)
+		}
+	}()
 
 	respBodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {

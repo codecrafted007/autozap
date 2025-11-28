@@ -67,7 +67,7 @@ func StartCronTrigger(wf *workflow.Workflow) error {
 	})
 
 	if err != nil {
-		return fmt.Errorf("Failed to add cron job for workflow '%s': %w", wf.Name, err)
+		return fmt.Errorf("failed to add cron job for workflow '%s': %w", wf.Name, err)
 	}
 	logger.L().Infof("Cron Job %s scheduled for workflow '%s' with entry ID %d",
 		wf.Trigger.Schedule, wf.Name, entryId)

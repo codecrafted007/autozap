@@ -112,7 +112,7 @@ func validateWorkflow(wf *workflow.Workflow) error {
 
 			// Warn if Bash/Custom fields are present
 			if action.Command != "" || action.FunctionName != "" || action.Arguments != nil {
-				return fmt.Errorf("HTTP action %s at index %d has unexpected Bash or Custom fields; they will be ignored.", action.Name, i)
+				return fmt.Errorf("HTTP action %s at index %d has unexpected Bash or Custom fields; they will be ignored", action.Name, i)
 			}
 		case workflow.ActionTypeCustom:
 			if action.FunctionName == "" {

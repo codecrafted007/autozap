@@ -15,7 +15,8 @@ func main() {
 
 	defer func() {
 		if err := logger.L().Sync(); err != nil {
-			os.Stderr.WriteString("Failed to sync logger: " + err.Error() + "\n")
+			// Explicitly ignore write error as this is a best-effort attempt during shutdown
+			_, _ = os.Stderr.WriteString("Failed to sync logger: " + err.Error() + "\n")
 		}
 	}()
 

@@ -34,7 +34,6 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 	}
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		watcher.Close() // Ensure we close the watcher if it was created
 		logger.L().Errorw("Failed to create file watcher",
 			"workflow_name", wf.Name,
 			"error", err,
@@ -45,7 +44,9 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 	// Add the path to watch
 	err = watcher.Add(wf.Trigger.Path)
 	if err != nil {
-		watcher.Close() // Ensure watcher is closed on error
+		if closeErr := watcher.Close(); closeErr != nil {
+			logger.L().Errorw("Failed to close watcher after error", "error", closeErr, "workflow_name", wf.Name)
+		}
 		err = fmt.Errorf("failed to add path '%s' to watcher for workflow '%s': %w", wf.Trigger.Path, wf.Name, err)
 		logger.L().Errorw("File watch trigger setup error",
 			"workflow_name", wf.Name,
@@ -63,7 +64,11 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 
 	// Start go routine to handle file events
 	go func() {
-		defer watcher.Close() // Ensure the watcher is closed when done
+		defer func() {
+			if closeErr := watcher.Close(); closeErr != nil {
+				logger.L().Errorw("Failed to close watcher", "error", closeErr, "workflow_name", wf.Name)
+			}
+		}()
 		for {
 			select {
 			case event, ok := <-watcher.Events:
