@@ -26,6 +26,11 @@ Modern DevOps teams need automation that's:
 Perfect for: API health monitoring, automated backups, log rotation, deployment automation, infrastructure monitoring, file processing pipelines.
 
 ---
+✅ Current Features
+**CLI Tool:** A command-line interface built with Cobra.
+**Structured Logging:** Blazing-fast, JSON-formatted logs using Zap.
+**YAML Workflow Parsing:** Loads and validates workflows defined in YAML files.
+**Trigger Execution:**
 
 ## ✨ Features
 
@@ -439,6 +444,12 @@ autozap/
 - Structured JSON logging with Uber's Zap
 - YAML workflow parsing and validation
 - Sequential action execution with error handling
+
+```bash
+git clone https://github.com/codecrafted007/autozap.git
+cd autozap
+go mod tidy
+```
 
 ### Roadmap 🗓️
 - [ ] **Agent Mode**: Monitor directory for multiple workflows
