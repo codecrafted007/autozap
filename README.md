@@ -1,214 +1,502 @@
-⚡ AutoZap — Self-Hosted, Event-Driven Automation Engine
+# AutoZap
 
-AutoZap is a lightweight, local-first, terminal-friendly automation engine written in Go. It allows users to define powerful workflows in YAML that react to events (like cron schedules or file changes) and perform various actions (like running Bash commands, making HTTP requests, or executing custom logic).
+[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/codecrafted007/autozap)](https://goreportcard.com/report/github.com/codecrafted007/autozap)
+[![CI](https://github.com/codecrafted007/autozap/workflows/CI/badge.svg)](https://github.com/codecrafted007/autozap/actions)
 
-Think of it as “Zapier for infra and Bash scripts” — designed for automation without the cloud, providing full control and observability directly on your servers.
+> A lightweight, self-hosted workflow automation engine built in Go. Event-driven infrastructure automation without the cloud dependency.
 
-🛍 Project Overview & Vision
-AutoZap aims to be a powerful yet minimal self-hosted automation tool that:
+**Think "Zapier for DevOps" or "Cron on Steroids"** - schedule tasks, watch files, chain actions, and automate your infrastructure with simple YAML configs.
 
-* Uses plain YAML for workflow definitions.
-* Runs any Bash command.
-* Integrates with your infrastructure stack.
-* Requires no cloud, no lock-in, and no fluff.
+[Features](#-features) • [Quick Start](#-quick-start) • [Examples](#-real-world-examples) • [Architecture](#%EF%B8%8F-architecture) • [Documentation](#-documentation)
 
-🌟 Why AutoZap?
-Traditional automation tools often present limitations for infrastructure and local scripting needs:
+---
 
-| Tool      | Problem                                       |
-| --------- | --------------------------------------------- |
-| Zapier    | Cloud-based, not infra- or Bash-friendly      |
-| Node-RED  | IoT/data-focused, limited CLI/Bash support    |
-| Ansible   | Too heavy for simple task automation          |
-| CRON only | Lacks chaining, logging, reactive flows       |
-| n8n       | Too app-centric, complex for local automation |
+## 🎯 Why AutoZap?
 
-AutoZap is built for:
+Modern DevOps teams need automation that's:
+- **Self-hosted**: Your infrastructure, your rules, no cloud vendor lock-in
+- **Lightweight**: Single Go binary, minimal dependencies, low resource footprint
+- **Event-driven**: Respond to cron schedules and file system changes in real-time
+- **Observable**: Structured JSON logging with Uber's Zap for production debugging
+- **Simple**: YAML-based workflows that your entire team can read and write
+- **Extensible**: Plugin architecture for custom triggers and actions
 
-* DevOps engineers who want to automate tasks on servers.
-* Homelab users or sysadmins who already write shell scripts.
-* Anyone who wants CLI-based task automation with observability.
+Perfect for: API health monitoring, automated backups, log rotation, deployment automation, infrastructure monitoring, file processing pipelines.
 
-✅ Current MVP Features
-**CLI Tool:** A command-line interface built with Cobra.
-**Structured Logging:** Blazing-fast, JSON-formatted logs using Zap.
-**YAML Workflow Parsing:** Loads and validates workflows defined in YAML files.
-**Trigger Execution:**
+---
 
-* CRON Trigger using `robfig/cron/v3`
-* File Watch Trigger using `fsnotify/fsnotify`
-  **Action Execution:**
-* Bash Action: Run arbitrary Bash commands.
-* HTTP Action: Make requests with full config.
-* Custom Action: Simulated for future extension.
+## ✨ Features
 
-🛠 Project Structure
+### Triggers
+- **⏰ CRON Scheduling**: Standard cron expressions for time-based automation
+- **📁 File System Watching**: React to file create, write, delete, rename, and permission changes
+- *(Coming soon)* Webhook triggers, message queue consumers
+
+### Actions
+- **💻 Bash Commands**: Execute shell scripts with full stdout/stderr capture
+- **🌐 HTTP Requests**: Make API calls with custom headers, body, timeout, and response validation
+- **🔌 Custom Functions**: Extensible framework for plugin-based actions
+- **⛓️ Sequential Execution**: Reliable, ordered action chains with comprehensive error logging
+
+### Observability
+- **📊 Structured Logging**: Production-grade JSON logs with Uber's Zap
+- **🚨 Error Handling**: Detailed error messages with exit codes and response bodies
+- **📈 Execution Tracking**: Full visibility into workflow triggers and action results
+
+---
+
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/codecrafted007/autozap.git
+cd autozap
+
+# Build the binary
+go build -o autozap .
+
+# Or install directly
+go install github.com/codecrafted007/autozap@latest
+```
+
+### Your First Workflow
+
+Create a simple health check monitor:
+
+```yaml
+# health-check.yaml
+name: "api-health-monitor"
+description: "Monitor API health every 5 minutes"
+
+trigger:
+  type: "cron"
+  schedule: "*/5 * * * *"  # Every 5 minutes
+
+actions:
+  - type: "http"
+    name: "check-api"
+    url: "https://api.example.com/health"
+    method: "GET"
+    timeout: "10s"
+    expect_status: [200]
+    expect_body_contains: "healthy"
+
+  - type: "bash"
+    name: "log-status"
+    command: "echo $(date) - API health check passed >> /var/log/health.log"
+```
+
+Run it:
+
+```bash
+./autozap run health-check.yaml
+```
+
+That's it! AutoZap will check your API every 5 minutes and log the results.
+
+---
+
+## 📚 Real-World Examples
+
+### 🐳 Docker Container Cleanup
+```yaml
+name: "docker-cleanup"
+description: "Remove unused Docker images weekly"
+
+trigger:
+  type: "cron"
+  schedule: "0 2 * * 0"  # Sunday 2 AM
+
+actions:
+  - type: "bash"
+    name: "cleanup-images"
+    command: "docker image prune -af --filter until=168h"
+
+  - type: "bash"
+    name: "cleanup-volumes"
+    command: "docker volume prune -f"
+```
+
+### 🔒 SSL Certificate Monitoring
+```yaml
+name: "ssl-cert-check"
+description: "Check SSL certificate expiration daily"
+
+trigger:
+  type: "cron"
+  schedule: "0 9 * * *"  # Daily at 9 AM
+
+actions:
+  - type: "bash"
+    name: "check-expiry"
+    command: |
+      expiry=$(echo | openssl s_client -servername example.com -connect example.com:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)
+      echo "Certificate expires: $expiry"
+
+  - type: "http"
+    name: "alert-slack"
+    url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+    method: "POST"
+    body: '{"text": "SSL certificate check completed"}'
+```
+
+### 💾 Automated Backups on File Changes
+```yaml
+name: "auto-backup"
+description: "Backup files to S3 when they change"
+
+trigger:
+  type: "filewatch"
+  path: "/home/user/important-docs"
+  events: ["write", "create"]
+
+actions:
+  - type: "bash"
+    name: "sync-to-s3"
+    command: "aws s3 sync /home/user/important-docs s3://backup-bucket/docs/"
+
+  - type: "bash"
+    name: "log-backup"
+    command: "echo $(date) - Backup completed >> /var/log/backups.log"
+```
+
+### 🗄️ Database Backup Automation
+```yaml
+name: "postgres-backup"
+description: "Backup PostgreSQL database nightly"
+
+trigger:
+  type: "cron"
+  schedule: "0 1 * * *"  # 1 AM daily
+
+actions:
+  - type: "bash"
+    name: "dump-database"
+    command: |
+      BACKUP_FILE="/backups/postgres-$(date +%Y%m%d).sql.gz"
+      pg_dump -U postgres mydb | gzip > $BACKUP_FILE
+
+  - type: "bash"
+    name: "upload-to-s3"
+    command: "aws s3 cp /backups/postgres-$(date +%Y%m%d).sql.gz s3://db-backups/"
+
+  - type: "bash"
+    name: "cleanup-old-backups"
+    command: "find /backups -name 'postgres-*.sql.gz' -mtime +7 -delete"
+```
+
+### 📊 API Endpoint Monitoring with Alerting
+```yaml
+name: "api-monitor"
+description: "Monitor critical API endpoints"
+
+trigger:
+  type: "cron"
+  schedule: "*/2 * * * *"  # Every 2 minutes
+
+actions:
+  - type: "http"
+    name: "check-endpoint"
+    url: "https://api.example.com/v1/status"
+    method: "GET"
+    timeout: "5s"
+    expect_status: [200, 201]
+
+  - type: "http"
+    name: "alert-on-failure"
+    url: "https://api.pagerduty.com/incidents"
+    method: "POST"
+    headers:
+      Authorization: "Token token=YOUR_TOKEN"
+      Content-Type: "application/json"
+    body: '{"incident": {"type": "incident", "title": "API endpoint down"}}'
+```
+
+### 📝 Log Rotation and Cleanup
+```yaml
+name: "log-rotation"
+description: "Rotate and compress logs daily"
+
+trigger:
+  type: "cron"
+  schedule: "0 0 * * *"  # Midnight daily
+
+actions:
+  - type: "bash"
+    name: "rotate-logs"
+    command: |
+      cd /var/log/myapp
+      mv app.log app-$(date +%Y%m%d).log
+      gzip app-$(date +%Y%m%d).log
+      touch app.log
+
+  - type: "bash"
+    name: "cleanup-old-logs"
+    command: "find /var/log/myapp -name '*.log.gz' -mtime +30 -delete"
+```
+
+### 🚀 Deployment Notification
+```yaml
+name: "deployment-webhook"
+description: "Watch for deployment files and notify team"
+
+trigger:
+  type: "filewatch"
+  path: "/deployments"
+  events: ["create"]
+
+actions:
+  - type: "bash"
+    name: "read-deployment-info"
+    command: "cat /deployments/*.json"
+
+  - type: "http"
+    name: "notify-team"
+    url: "https://hooks.slack.com/services/YOUR/WEBHOOK"
+    method: "POST"
+    body: '{"text": "🚀 New deployment detected!"}'
+```
+
+### 💽 Disk Space Monitoring
+```yaml
+name: "disk-space-alert"
+description: "Alert when disk space is low"
+
+trigger:
+  type: "cron"
+  schedule: "0 */4 * * *"  # Every 4 hours
+
+actions:
+  - type: "bash"
+    name: "check-disk-space"
+    command: |
+      usage=$(df -h / | tail -1 | awk '{print $5}' | sed 's/%//')
+      if [ $usage -gt 80 ]; then
+        echo "WARNING: Disk usage at ${usage}%"
+        exit 1
+      fi
+      echo "OK: Disk usage at ${usage}%"
+
+  - type: "http"
+    name: "send-alert"
+    url: "https://api.opsgenie.com/v2/alerts"
+    method: "POST"
+    headers:
+      Authorization: "GenieKey YOUR_KEY"
+    body: '{"message": "Disk space critical", "priority": "P1"}'
+```
+
+> 💡 See [`workflows/`](workflows/) directory for more production-ready examples
+
+---
+
+## 🏗️ Architecture
+
+AutoZap follows a clean, modular architecture with clear separation of concerns:
+
+```
+┌─────────────────────────────────────────────────┐
+│                  CLI (Cobra)                    │
+│              main.go, cmd/run.go                │
+└────────────────────┬────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────┐
+│            Parser & Validator                   │
+│    YAML → Workflow Struct → Validation          │
+└────────────────────┬────────────────────────────┘
+                     │
+                     ▼
+        ┌────────────────────────┐
+        │   Trigger Dispatcher   │
+        └────────┬───────────────┘
+                 │
+        ┌────────┴─────────┐
+        │                  │
+        ▼                  ▼
+┌──────────────┐   ┌──────────────┐
+│ CRON Trigger │   │ File Watcher │
+│  (robfig)    │   │  (fsnotify)  │
+└──────┬───────┘   └──────┬───────┘
+       │                  │
+       └────────┬─────────┘
+                │
+                ▼
+      ┌─────────────────┐
+      │ Action Executor │
+      │  (Sequential)   │
+      └────────┬────────┘
+               │
+        ┌──────┴──────┐
+        │             │
+        ▼             ▼
+┌─────────────┐  ┌──────────┐
+│ Bash Action │  │ HTTP     │
+│  (os/exec)  │  │ Action   │
+└─────────────┘  └──────────┘
+        │             │
+        └──────┬──────┘
+               │
+               ▼
+      ┌────────────────┐
+      │ Zap Logger     │
+      │ (JSON Output)  │
+      └────────────────┘
+```
+
+### Key Design Decisions
+
+**Why Go?**
+- Native concurrency with goroutines for parallel workflow management
+- Single binary deployment - no runtime dependencies
+- Strong standard library (os/exec, net/http, context)
+- Fast compilation and excellent performance
+- Type safety for workflow validation
+
+**Event-Driven Architecture**
+- More powerful than simple cron jobs
+- Real-time response to file system changes
+- Extensible trigger system for future webhook/queue support
+- Non-blocking execution with goroutines
+
+**Modular Design**
+- Clear separation: Parser → Triggers → Actions → Logger
+- Easy to extend with new trigger types (webhooks, queues)
+- Easy to extend with new action types (database, SSH, etc.)
+- Highly testable components
+
+> 📖 For detailed workflow documentation, see [autozap_workflow.md](autozap_workflow.md)
+
+---
+
+## 🛠️ Development
+
+### Prerequisites
+- Go 1.21 or higher
+- Make (optional)
+
+### Building from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/codecrafted007/autozap.git
+cd autozap
+
+# Install dependencies
+go mod download
+
+# Build
+go build -o autozap .
+
+# Run tests
+go test -v ./...
+
+# Run with race detection
+go test -race ./...
+
+# Lint (requires golangci-lint)
+golangci-lint run
+```
+
+### Project Structure
 
 ```
 autozap/
-├── cmd/                  # CLI entry points
-│   └── root.go
-│   └── run.go
+├── cmd/                    # CLI commands
+│   ├── root.go            # Root command
+│   ├── run.go             # Run workflow command
+│   └── agent.go           # Agent mode (planned)
 ├── internal/
-│   ├── action/           # bash.go, http.go, custom.go
-│   ├── engine.go         # (Planned) Agent runtime loop
-│   ├── logger/           # Zap logger setup
-│   ├── parser/           # YAML loader/validator
-│   ├── trigger/          # cron.go, filewatch.go
-│   └── workflow/         # YAML schema structs (types.go)
-├── workflows/            # Example YAML definitions
-├── go.mod
-├── go.sum
-└── main.go
+│   ├── workflow/          # Workflow types and structures
+│   ├── parser/            # YAML parser and validator
+│   ├── trigger/           # Trigger implementations
+│   │   ├── cron.go       # CRON trigger
+│   │   └── filewatch.go  # File watcher trigger
+│   ├── action/            # Action implementations
+│   │   ├── bash.go       # Bash command action
+│   │   └── http.go       # HTTP request action
+│   └── logger/            # Zap logger setup
+├── workflows/             # Example workflows
+├── main.go               # Application entry point
+└── go.mod                # Go module definition
 ```
 
-🚀 Getting Started
-**Prerequisites:**
+---
 
-* Go 1.17+
-* jq (optional, for pretty JSON logs)
+## 🚦 Project Status
 
-**Install:**
+**Alpha Release** - Core functionality is working and stable for personal use. Not yet recommended for mission-critical production workloads.
 
-```bash
-git clone https://github.com/yourusername/autozap.git
-cd autozap
-go mod tidy
-```
+### Implemented ✅
+- CRON-based scheduling with robfig/cron
+- File system watching with fsnotify
+- Bash command execution with full output capture
+- HTTP requests with validation (status codes, body matching)
+- Structured JSON logging with Uber's Zap
+- YAML workflow parsing and validation
+- Sequential action execution with error handling
 
-**Run Examples:**
+### Roadmap 🗓️
+- [ ] **Agent Mode**: Monitor directory for multiple workflows
+- [ ] **Workflow State**: Track execution history in SQLite
+- [ ] **Templating**: Variable substitution and dynamic values
+- [ ] **Retry Logic**: Automatic retries with exponential backoff
+- [ ] **Conditionals**: Skip actions based on previous results
+- [ ] **Webhook Trigger**: HTTP endpoint to trigger workflows
+- [ ] **Prometheus Metrics**: Expose workflow metrics
+- [ ] **Web UI**: Dashboard for workflow management
+- [ ] **Plugin System**: External action/trigger plugins
+- [ ] **Secrets Management**: Encrypted credential storage
 
-Run a Cron-Triggered Workflow:
+---
 
-```bash
-go run main.go run workflows/sample.yaml | jq .
-```
+## 📋 Documentation
 
-Run an HTTP Action Workflow:
+- **[Workflow Documentation](autozap_workflow.md)** - Complete workflow execution guide
+- **[Examples](workflows/)** - Production-ready workflow examples
+- **[Contributing](CONTRIBUTING.md)** - How to contribute to AutoZap
 
-```bash
-go run main.go run workflows/http-check.yaml | jq .
-```
+---
 
-Run a File Watch Triggered Workflow:
+## 🤝 Contributing
 
-```bash
-mkdir -p test_watch_dir
-go run main.go run workflows/file-monitor.yaml | jq .
-```
+Contributions are welcome! Whether it's:
+- 🐛 Bug reports and fixes
+- ✨ New features or triggers/actions
+- 📝 Documentation improvements
+- 💡 Architecture suggestions
 
-In another terminal:
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-```bash
-touch test_watch_dir/new_file.txt
-echo "hello" > test_watch_dir/existing_file.txt
-rm test_watch_dir/new_file.txt
-```
+---
 
-Run a Custom Action Workflow:
+## 📄 License
 
-```bash
-go run main.go run workflows/custom-action-example.yaml | jq .
-```
+MIT License - see [LICENSE](LICENSE) for details.
 
-📋 Example Workflow YAMLs
-**sample.yaml**
+---
 
-```yaml
-name: "restart-nginx-example"
-description: "Restart Nginx every 5 minutes."
-trigger:
-  type: "cron"
-  schedule: "*/5 * * * *"
-actions:
-  - type: "bash"
-    name: "restart-nginx-service"
-    command: "echo 'Simulating Nginx restart...' && echo 'Nginx restart successful' && exit 0"
-```
+## 🙏 Acknowledgments
 
-**http-check.yaml**
+Built with these excellent libraries:
+- [Cobra](https://github.com/spf13/cobra) - CLI framework
+- [Zap](https://github.com/uber-go/zap) - Structured logging
+- [fsnotify](https://github.com/fsnotify/fsnotify) - File system notifications
+- [cron](https://github.com/robfig/cron) - CRON scheduling
 
-```yaml
-name: "check-google-health"
-description: "Ping google.com every minute."
-trigger:
-  type: "cron"
-  schedule: "*/1 * * * *"
-actions:
-  - type: "http"
-    name: "ping-google"
-    url: "https://www.google.com"
-    method: "GET"
-    timeout: "5s"
-    expect_status: 200
-    expect_body_contains: "<title>Google</title>"
-```
+---
 
-**file-monitor.yaml**
+## 💬 Contact & Support
 
-```yaml
-name: "log-file-changes"
-description: "Monitor directory for file changes."
-trigger:
-  type: "filewatch"
-  path: "./test_watch_dir"
-  events: ["create", "write", "remove"]
-actions:
-  - type: "bash"
-    name: "log-event-detail"
-    command: "echo 'File event detected! AutoZap triggered.'"
-```
+- **Issues**: [GitHub Issues](https://github.com/codecrafted007/autozap/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/codecrafted007/autozap/discussions)
 
-**custom-action-example.yaml**
+---
 
-```yaml
-name: "process-daily-report"
-description: "Trigger internal custom report generation."
-trigger:
-  type: "cron"
-  schedule: "0 1 * * *"
-actions:
-  - type: "custom"
-    name: "generate-sales-report"
-    function_name: "GenerateSalesReport"
-    arguments:
-      report_type: "daily"
-      email_recipients: ["admin@example.com", "manager@example.com"]
-      data_source: "production_db"
-```
-
-🚣 Roadmap Ahead
-**Phase 1: MVP (Done)**
-
-* Core trigger/action engine
-* CLI + logging
-
-**Phase 2: Observability**
-
-* Per-workflow log files
-* Prometheus metrics
-* Error/status tracking
-
-**Phase 3: Persistence**
-
-* Save last run times
-* Avoid duplicate executions
-* BoltDB/SQLite history
-
-**Phase 4: Plugin Support**
-
-* HTTP trigger
-* Notifications (Slack/Telegram)
-* Webhook support
-
-**Phase 5: Dashboard** (Optional)
-
-* Web UI for workflow visualization, status, logs
-
-🤝 Contributing
-
-* Open issues for bugs/ideas
-* Submit PRs with fixes/improvements
-
-📄 License
-MIT License - see LICENSE file for details.
+<p align="center">
+  <sub>Built with ❤️ using Go</sub>
+</p>
