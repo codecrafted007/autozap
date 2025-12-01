@@ -86,12 +86,17 @@ func ExecuteHttpAction(action *workflow.Action) error {
 	}
 	responseBody := string(respBodyBytes)
 
+	bodyOverview := responseBody
+	if len(responseBody) > 200 {
+		bodyOverview = responseBody[:200]
+	}
+
 	logFields := []interface{}{
 		"action_name", action.Name,
 		"method", action.Method,
 		"url", action.URL,
 		"status_code", resp.StatusCode,
-		"respone_body_overview", responseBody[:200], // print only first few charcters
+		"respone_body_overview", bodyOverview, // print only first few charcters
 	}
 	logger.L().Infow("HTTP action response received", logFields...)
 
