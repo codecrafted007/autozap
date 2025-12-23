@@ -142,6 +142,9 @@ actions:
 
 # Disable hot-reload
 ./autozap agent ./workflows --watch=false
+
+# Enable per-workflow log files (easier debugging)
+./autozap agent --log-dir=/var/log/autozap
 ```
 
 ### 🤖 Agent Mode (Production-Ready)
@@ -173,6 +176,42 @@ Agent mode is the recommended way to run AutoZap in production. It automatically
 - 🔄 **Hot-reload** means you can add workflows without restarting
 - 🐳 **Container-friendly** with proper signal handling
 - 📊 **Structured logging** for production observability
+
+### 📝 Logging Options
+
+**Default (stdout)** - Container-friendly:
+```bash
+./autozap agent | tee -a autozap.log
+```
+All workflows log to stdout with structured JSON. Perfect for Docker/Kubernetes.
+
+**Per-workflow files** - Easier debugging:
+```bash
+./autozap agent --log-dir=/var/log/autozap
+```
+Creates separate log files:
+```
+/var/log/autozap/
+├── docker-cleanup.log
+├── api-health-check.log
+├── ssl-cert-monitor.log
+└── ...
+```
+
+**Why separate logs?**
+- ✅ Debug individual workflows without noise
+- ✅ Different retention policies per workflow
+- ✅ Easy to `tail -f` specific workflow
+- ✅ Simpler log rotation per workflow
+
+**Example:**
+```bash
+# Monitor just API health checks
+tail -f /var/log/autozap/api-health-check.log
+
+# Check what Docker cleanup did last night
+grep "cleanup" /var/log/autozap/docker-cleanup.log
+```
 
 ---
 

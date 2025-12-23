@@ -41,13 +41,29 @@ Example:
 			workflowDir = args[0]
 		}
 
-		// Get watch flag
+		// Get flags
 		watch, _ := cmd.Flags().GetBool("watch")
+		logDir, _ := cmd.Flags().GetString("log-dir")
 
 		logger.L().Infow("Starting AutoZap Agent",
 			"workflow_directory", workflowDir,
 			"hot_reload", watch,
+			"log_directory", logDir,
 		)
+
+		// Validate log directory if specified
+		if logDir != "" {
+			if err := os.MkdirAll(logDir, 0755); err != nil {
+				logger.L().Errorw("Failed to create log directory",
+					"directory", logDir,
+					"error", err,
+				)
+				return
+			}
+			logger.L().Infow("Per-workflow logging enabled",
+				"log_directory", logDir,
+			)
+		}
 
 		// Check if directory exists
 		if _, err := os.Stat(workflowDir); os.IsNotExist(err) {
@@ -68,7 +84,7 @@ Example:
 
 		// Load and start all workflows
 		activeWorkflows := &sync.Map{} // map[string]context.CancelFunc
-		if err := loadWorkflows(ctx, workflowDir, activeWorkflows); err != nil {
+		if err := loadWorkflows(ctx, workflowDir, logDir, activeWorkflows); err != nil {
 			logger.L().Errorw("Failed to load workflows",
 				"error", err,
 			)
@@ -79,7 +95,7 @@ Example:
 		var watcher *fsnotify.Watcher
 		var err error
 		if watch {
-			watcher, err = setupWorkflowWatcher(ctx, workflowDir, activeWorkflows)
+			watcher, err = setupWorkflowWatcher(ctx, workflowDir, logDir, activeWorkflows)
 			if err != nil {
 				logger.L().Errorw("Failed to setup workflow watcher",
 					"error", err,
@@ -106,7 +122,7 @@ Example:
 }
 
 // loadWorkflows discovers and starts all workflow files in a directory
-func loadWorkflows(ctx context.Context, workflowDir string, activeWorkflows *sync.Map) error {
+func loadWorkflows(ctx context.Context, workflowDir, logDir string, activeWorkflows *sync.Map) error {
 	// Find all YAML files
 	pattern := filepath.Join(workflowDir, "*.yaml")
 	files, err := filepath.Glob(pattern)
@@ -137,7 +153,7 @@ func loadWorkflows(ctx context.Context, workflowDir string, activeWorkflows *syn
 	// Load each workflow
 	successCount := 0
 	for _, file := range files {
-		if err := startWorkflow(ctx, file, activeWorkflows); err != nil {
+		if err := startWorkflow(ctx, file, logDir, activeWorkflows); err != nil {
 			logger.L().Errorw("Failed to start workflow",
 				"file", file,
 				"error", err,
@@ -157,16 +173,26 @@ func loadWorkflows(ctx context.Context, workflowDir string, activeWorkflows *syn
 }
 
 // startWorkflow parses and starts a single workflow
-func startWorkflow(ctx context.Context, filePath string, activeWorkflows *sync.Map) error {
+func startWorkflow(ctx context.Context, filePath, logDir string, activeWorkflows *sync.Map) error {
 	// Parse workflow
 	wf, err := parser.ParseWorkflowFile(filePath)
 	if err != nil {
 		return err
 	}
 
-	logger.L().Infow("Starting workflow",
+	// Create workflow-specific logger
+	workflowLogger, err := logger.NewWorkflowLogger(wf.Name, logDir)
+	if err != nil {
+		logger.L().Errorw("Failed to create workflow logger",
+			"workflow_name", wf.Name,
+			"error", err,
+		)
+		// Fallback to global logger
+		workflowLogger = logger.L().With("workflow_name", wf.Name)
+	}
+
+	workflowLogger.Infow("Starting workflow",
 		"file", filePath,
-		"workflow_name", wf.Name,
 		"trigger_type", wf.Trigger.Type,
 		"actions_count", len(wf.Actions),
 	)
@@ -184,8 +210,7 @@ func startWorkflow(ctx context.Context, filePath string, activeWorkflows *sync.M
 		switch wf.Trigger.Type {
 		case workflow.TriggerTypeCron:
 			if err := trigger.StartCronTrigger(wf); err != nil {
-				logger.L().Errorw("Failed to start cron trigger",
-					"workflow_name", wf.Name,
+				workflowLogger.Errorw("Failed to start cron trigger",
 					"file", filePath,
 					"error", err,
 				)
@@ -193,16 +218,14 @@ func startWorkflow(ctx context.Context, filePath string, activeWorkflows *sync.M
 			}
 		case workflow.TriggerTypeFileWatch:
 			if err := trigger.StartFileWatchTrigger(wf); err != nil {
-				logger.L().Errorw("Failed to start file watch trigger",
-					"workflow_name", wf.Name,
+				workflowLogger.Errorw("Failed to start file watch trigger",
 					"file", filePath,
 					"error", err,
 				)
 				return
 			}
 		default:
-			logger.L().Errorw("Unsupported trigger type",
-				"workflow_name", wf.Name,
+			workflowLogger.Errorw("Unsupported trigger type",
 				"trigger_type", wf.Trigger.Type,
 			)
 			return
@@ -210,8 +233,7 @@ func startWorkflow(ctx context.Context, filePath string, activeWorkflows *sync.M
 
 		// Wait for context cancellation
 		<-workflowCtx.Done()
-		logger.L().Infow("Workflow stopped",
-			"workflow_name", wf.Name,
+		workflowLogger.Infow("Workflow stopped",
 			"file", filePath,
 		)
 	}()
@@ -220,7 +242,7 @@ func startWorkflow(ctx context.Context, filePath string, activeWorkflows *sync.M
 }
 
 // setupWorkflowWatcher sets up file system watcher for hot-reload
-func setupWorkflowWatcher(ctx context.Context, workflowDir string, activeWorkflows *sync.Map) (*fsnotify.Watcher, error) {
+func setupWorkflowWatcher(ctx context.Context, workflowDir, logDir string, activeWorkflows *sync.Map) (*fsnotify.Watcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -262,7 +284,7 @@ func setupWorkflowWatcher(ctx context.Context, workflowDir string, activeWorkflo
 					// Wait a bit for file to be fully written
 					time.Sleep(500 * time.Millisecond)
 
-					if err := startWorkflow(ctx, event.Name, activeWorkflows); err != nil {
+					if err := startWorkflow(ctx, event.Name, logDir, activeWorkflows); err != nil {
 						logger.L().Errorw("Failed to start new workflow",
 							"file", event.Name,
 							"error", err,
@@ -289,7 +311,7 @@ func setupWorkflowWatcher(ctx context.Context, workflowDir string, activeWorkflo
 					time.Sleep(500 * time.Millisecond)
 
 					// Start updated workflow
-					if err := startWorkflow(ctx, event.Name, activeWorkflows); err != nil {
+					if err := startWorkflow(ctx, event.Name, logDir, activeWorkflows); err != nil {
 						logger.L().Errorw("Failed to reload workflow",
 							"file", event.Name,
 							"error", err,
@@ -336,4 +358,5 @@ func init() {
 
 	// Add flags
 	agentCmd.Flags().Bool("watch", true, "Enable hot-reload for workflow changes")
+	agentCmd.Flags().String("log-dir", "", "Directory for per-workflow log files (default: stdout)")
 }
