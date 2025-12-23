@@ -125,13 +125,54 @@ actions:
     command: "echo $(date) - API health check passed >> /var/log/health.log"
 ```
 
-Run it:
+**Run a single workflow:**
 
 ```bash
 ./autozap run health-check.yaml
 ```
 
-That's it! AutoZap will check your API every 5 minutes and log the results.
+**Or use Agent Mode to run ALL workflows automatically:**
+
+```bash
+# Run all workflows in ./workflows directory
+./autozap agent
+
+# Or specify a custom directory
+./autozap agent /path/to/workflows
+
+# Disable hot-reload
+./autozap agent ./workflows --watch=false
+```
+
+### 🤖 Agent Mode (Production-Ready)
+
+Agent mode is the recommended way to run AutoZap in production. It automatically:
+
+✅ **Auto-discovers** all `.yaml` and `.yml` files in the directory
+✅ **Runs concurrently** - all workflows execute in parallel
+✅ **Hot-reloads** - detects new workflows and starts them automatically
+✅ **Graceful shutdown** - handles SIGTERM/SIGINT properly
+✅ **Production-ready** - designed for Docker, systemd, Kubernetes
+
+**Example: Run all production workflows**
+```bash
+./autozap agent ./workflows
+```
+
+```
+{"level":"info","msg":"Starting AutoZap Agent","workflow_directory":"./workflows","hot_reload":true}
+{"level":"info","msg":"Discovered workflow files","count":7}
+{"level":"info","msg":"Starting workflow","file":"workflows/docker-cleanup.yaml","workflow_name":"docker-cleanup"}
+{"level":"info","msg":"Starting workflow","file":"workflows/api-health-check.yaml","workflow_name":"api-health-monitoring"}
+...
+{"level":"info","msg":"🚀 AutoZap Agent is running. Press Ctrl+C to stop."}
+```
+
+**Benefits:**
+- 🚀 **One command** to run all your infrastructure automation
+- 🔄 **Hot-reload** means you can add workflows without restarting
+- 🐳 **Container-friendly** with proper signal handling
+- 📊 **Structured logging** for production observability
 
 ---
 
@@ -570,6 +611,7 @@ func TestMyFunction(t *testing.T) {
 **Alpha Release** - Core functionality is working and stable for personal use. Not yet recommended for mission-critical production workloads.
 
 ### Implemented ✅
+- **Agent Mode** - Auto-discover and run multiple workflows concurrently with hot-reload
 - CRON-based scheduling with robfig/cron
 - File system watching with fsnotify
 - Bash command execution with full output capture
@@ -577,6 +619,7 @@ func TestMyFunction(t *testing.T) {
 - Structured JSON logging with Uber's Zap
 - YAML workflow parsing and validation
 - Sequential action execution with error handling
+- Graceful shutdown with SIGTERM/SIGINT handling
 
 ```bash
 git clone https://github.com/codecrafted007/autozap.git
@@ -585,7 +628,7 @@ go mod tidy
 ```
 
 ### Roadmap 🗓️
-- [ ] **Agent Mode**: Monitor directory for multiple workflows
+- [x] **Agent Mode**: Monitor directory for multiple workflows ✅ **IMPLEMENTED**
 - [ ] **Workflow State**: Track execution history in SQLite
 - [ ] **Templating**: Variable substitution and dynamic values
 - [ ] **Retry Logic**: Automatic retries with exponential backoff
