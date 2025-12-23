@@ -50,9 +50,10 @@ Perfect for: API health monitoring, automated backups, log rotation, deployment 
 - **⛓️ Sequential Execution**: Reliable, ordered action chains with comprehensive error logging
 
 ### Observability
-- **📊 Structured Logging**: Production-grade JSON logs with Uber's Zap
+- **📊 Structured Logging**: High-performance JSON logs using **Uber Zap** with dedicated logger per workflow
 - **🚨 Error Handling**: Detailed error messages with exit codes and response bodies
 - **📈 Execution Tracking**: Full visibility into workflow triggers and action results
+- **📁 Per-Workflow Logs**: Optional separate log files for isolated debugging
 
 ---
 
@@ -177,11 +178,13 @@ Agent mode is the recommended way to run AutoZap in production. It automatically
 - 🐳 **Container-friendly** with proper signal handling
 - 📊 **Structured logging** for production observability
 
-### 📝 Logging Options
+### 📝 Logging with Uber Zap
+
+AutoZap uses **Uber's Zap** library for high-performance structured logging. Each workflow gets its own dedicated Zap logger instance.
 
 **Default (stdout)** - Container-friendly:
 ```bash
-./autozap agent | tee -a autozap.log
+./autozap agent
 ```
 All workflows log to stdout with structured JSON. Perfect for Docker/Kubernetes.
 
@@ -189,28 +192,46 @@ All workflows log to stdout with structured JSON. Perfect for Docker/Kubernetes.
 ```bash
 ./autozap agent --log-dir=/var/log/autozap
 ```
-Creates separate log files:
+
+Creates **separate Zap logger instances**, each writing to its own file:
 ```
 /var/log/autozap/
-├── docker-cleanup.log
-├── api-health-check.log
-├── ssl-cert-monitor.log
-└── ...
+├── docker-cleanup.log           # Dedicated Zap logger
+├── api-health-check.log         # Dedicated Zap logger
+├── ssl-cert-monitor.log         # Dedicated Zap logger
+└── ...                          # One Zap logger per workflow
 ```
 
-**Why separate logs?**
-- ✅ Debug individual workflows without noise
-- ✅ Different retention policies per workflow
-- ✅ Easy to `tail -f` specific workflow
-- ✅ Simpler log rotation per workflow
+**Structured JSON Output (Uber Zap format):**
+```json
+{
+  "level": "info",
+  "ts": "2025-12-23T15:42:33.899+0530",
+  "caller": "cmd/agent.go:194",
+  "msg": "Starting workflow",
+  "workflow_name": "api-health-monitoring",
+  "trigger_type": "cron",
+  "actions_count": 7
+}
+```
 
-**Example:**
+**Why separate Zap loggers per workflow?**
+- ✅ **Isolated debugging** - Debug one workflow without noise from others
+- ✅ **Performance** - Each workflow writes to its own file (no lock contention)
+- ✅ **Flexible retention** - Different policies per workflow
+- ✅ **Easy monitoring** - `tail -f` specific workflow logs
+- ✅ **Production-ready** - Structured JSON for log aggregation tools
+
+**Example usage:**
 ```bash
-# Monitor just API health checks
+# Monitor just API health checks (structured JSON from Zap)
 tail -f /var/log/autozap/api-health-check.log
 
-# Check what Docker cleanup did last night
-grep "cleanup" /var/log/autozap/docker-cleanup.log
+# Parse logs with jq
+cat /var/log/autozap/docker-cleanup.log | jq '.msg'
+
+# Search specific fields
+cat /var/log/autozap/*.log | jq 'select(.level=="error")'
 ```
 
 ---
@@ -651,11 +672,12 @@ func TestMyFunction(t *testing.T) {
 
 ### Implemented ✅
 - **Agent Mode** - Auto-discover and run multiple workflows concurrently with hot-reload
+- **Per-Workflow Logging** - Dedicated Uber Zap logger instance per workflow with optional file output
 - CRON-based scheduling with robfig/cron
 - File system watching with fsnotify
 - Bash command execution with full output capture
 - HTTP requests with validation (status codes, body matching)
-- Structured JSON logging with Uber's Zap
+- Structured JSON logging with Uber's Zap (stdout or per-workflow files)
 - YAML workflow parsing and validation
 - Sequential action execution with error handling
 - Graceful shutdown with SIGTERM/SIGINT handling
