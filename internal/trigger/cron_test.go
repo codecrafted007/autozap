@@ -45,14 +45,14 @@ func TestStartCronTrigger(t *testing.T) {
 
 	t.Run("Standard Cron Expressions", func(t *testing.T) {
 		schedules := []string{
-			"*/5 * * * *",     // Every 5 minutes
-			"0 * * * *",       // Every hour
-			"0 0 * * *",       // Every day at midnight
-			"0 0 * * 0",       // Every Sunday at midnight
-			"0 0 1 * *",       // First day of every month
-			"@hourly",         // Predefined schedule
-			"@daily",          // Predefined schedule
-			"@weekly",         // Predefined schedule
+			"*/5 * * * *", // Every 5 minutes
+			"0 * * * *",   // Every hour
+			"0 0 * * *",   // Every day at midnight
+			"0 0 * * 0",   // Every Sunday at midnight
+			"0 0 1 * *",   // First day of every month
+			"@hourly",     // Predefined schedule
+			"@daily",      // Predefined schedule
+			"@weekly",     // Predefined schedule
 		}
 
 		for _, schedule := range schedules {

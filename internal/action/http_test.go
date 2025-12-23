@@ -12,7 +12,7 @@ func TestExecuteHttpAction(t *testing.T) {
 	t.Run("Successful GET Request", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Success"))
+			_, _ = w.Write([]byte("Success"))
 		}))
 		defer server.Close()
 
@@ -35,7 +35,7 @@ func TestExecuteHttpAction(t *testing.T) {
 				t.Errorf("Expected POST method, got %s", r.Method)
 			}
 			w.WriteHeader(http.StatusCreated)
-			w.Write([]byte("Created"))
+			_, _ = w.Write([]byte("Created"))
 		}))
 		defer server.Close()
 
@@ -161,7 +161,7 @@ func TestExecuteHttpAction(t *testing.T) {
 	t.Run("ExpectBodyContains Success", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Hello World from server"))
+			_, _ = w.Write([]byte("Hello World from server"))
 		}))
 		defer server.Close()
 
@@ -182,7 +182,7 @@ func TestExecuteHttpAction(t *testing.T) {
 	t.Run("ExpectBodyContains Failure", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Hello World"))
+			_, _ = w.Write([]byte("Hello World"))
 		}))
 		defer server.Close()
 
