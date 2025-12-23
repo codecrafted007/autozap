@@ -1,0 +1,78 @@
+name: "api-health-monitoring"
+description: "Comprehensive API health checks with response time monitoring"
+
+trigger:
+  type: "cron"
+  schedule: "*/5 * * * *"  # Every 5 minutes
+
+actions:
+  - type: "http"
+    name: "check-api-health-endpoint"
+    url: "https://api.example.com/health"
+    method: "GET"
+    timeout: "10s"
+    expect_status: [200, 204]
+    expect_body_contains: "healthy"
+
+  - type: "http"
+    name: "check-api-database-connection"
+    url: "https://api.example.com/health/database"
+    method: "GET"
+    timeout: "15s"
+    expect_status: 200
+    expect_body_contains: "connected"
+
+  - type: "http"
+    name: "check-api-redis-connection"
+    url: "https://api.example.com/health/redis"
+    method: "GET"
+    timeout: "10s"
+    expect_status: 200
+
+  - type: "bash"
+    name: "measure-api-response-time"
+    command: |
+      START=$(date +%s%N)
+      curl -s -o /dev/null -w "%{http_code}" https://api.example.com/health > /dev/null
+      END=$(date +%s%N)
+      DURATION=$(( ($END - $START) / 1000000 ))
+
+      echo "API response time: ${DURATION}ms"
+
+      if [ $DURATION -gt 2000 ]; then
+        echo "WARNING: API response time above 2 seconds!"
+        exit 1
+      fi
+
+  - type: "http"
+    name: "test-api-authentication"
+    url: "https://api.example.com/auth/verify"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+      Authorization: "Bearer test-token-here"
+    body: '{"test": true}'
+    timeout: "10s"
+    expect_status: [200, 401]
+
+  - type: "bash"
+    name: "check-api-error-rate"
+    command: |
+      # Check last 5 minutes of logs for errors
+      ERROR_COUNT=$(grep -c "ERROR" /var/log/api/app.log 2>/dev/null | tail -100 || echo "0")
+
+      echo "Error count in last check: $ERROR_COUNT"
+
+      if [ $ERROR_COUNT -gt 50 ]; then
+        echo "WARNING: High error rate detected!"
+        exit 1
+      fi
+
+  - type: "http"
+    name: "notify-on-failure"
+    url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    body: '{"text": "API Health Check: All systems operational ✅"}'
+    timeout: "10s"

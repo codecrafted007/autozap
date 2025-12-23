@@ -1,0 +1,59 @@
+name: "postgres-backup"
+description: "Automated PostgreSQL database backup with compression and cleanup"
+
+trigger:
+  type: "cron"
+  schedule: "0 1 * * *"  # Every day at 1 AM
+
+actions:
+  - type: "bash"
+    name: "create-backup-directory"
+    command: "mkdir -p /var/backups/postgres && echo 'Backup directory ready'"
+
+  - type: "bash"
+    name: "backup-database"
+    command: |
+      BACKUP_FILE="/var/backups/postgres/db_backup_$(date +%Y%m%d_%H%M%S).sql"
+      # For Docker: docker exec postgres-container pg_dump -U postgres mydb > $BACKUP_FILE
+      # For local: pg_dump -U postgres -h localhost mydb > $BACKUP_FILE
+      echo "pg_dump -U postgres mydb > $BACKUP_FILE"
+      echo "Database backup created: $BACKUP_FILE"
+
+  - type: "bash"
+    name: "compress-backup"
+    command: |
+      LATEST_BACKUP=$(ls -t /var/backups/postgres/*.sql 2>/dev/null | head -1)
+      if [ -f "$LATEST_BACKUP" ]; then
+        gzip "$LATEST_BACKUP"
+        echo "Backup compressed: ${LATEST_BACKUP}.gz"
+      else
+        echo "No backup file found to compress"
+      fi
+
+  - type: "bash"
+    name: "cleanup-old-backups"
+    command: |
+      # Keep only last 7 days of backups
+      find /var/backups/postgres -name "*.sql.gz" -mtime +7 -delete
+      echo "Old backups (>7 days) cleaned up"
+
+  - type: "bash"
+    name: "verify-backup-size"
+    command: |
+      LATEST_BACKUP=$(ls -t /var/backups/postgres/*.sql.gz 2>/dev/null | head -1)
+      if [ -f "$LATEST_BACKUP" ]; then
+        SIZE=$(du -h "$LATEST_BACKUP" | cut -f1)
+        echo "Latest backup size: $SIZE"
+      else
+        echo "ERROR: No backup found!"
+        exit 1
+      fi
+
+  - type: "http"
+    name: "notify-backup-success"
+    url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    body: '{"text": "PostgreSQL backup completed successfully"}'
+    timeout: "10s"

@@ -1,0 +1,48 @@
+name: "ssl-certificate-monitor"
+description: "Monitor SSL certificate expiry for critical domains (daily checks)"
+
+trigger:
+  type: "cron"
+  schedule: "0 9 * * *"  # Every day at 9 AM
+
+actions:
+  - type: "bash"
+    name: "check-production-ssl"
+    command: |
+      DOMAIN="example.com"
+      EXPIRY=$(echo | openssl s_client -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)
+      EXPIRY_EPOCH=$(date -j -f "%b %d %H:%M:%S %Y %Z" "$EXPIRY" "+%s" 2>/dev/null || date -d "$EXPIRY" +%s)
+      NOW_EPOCH=$(date +%s)
+      DAYS_LEFT=$(( ($EXPIRY_EPOCH - $NOW_EPOCH) / 86400 ))
+
+      echo "SSL Certificate for $DOMAIN expires in $DAYS_LEFT days"
+
+      if [ $DAYS_LEFT -lt 30 ]; then
+        echo "WARNING: Certificate expires soon!"
+        exit 1
+      fi
+
+  - type: "bash"
+    name: "check-api-ssl"
+    command: |
+      DOMAIN="api.example.com"
+      EXPIRY=$(echo | openssl s_client -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)
+      EXPIRY_EPOCH=$(date -j -f "%b %d %H:%M:%S %Y %Z" "$EXPIRY" "+%s" 2>/dev/null || date -d "$EXPIRY" +%s)
+      NOW_EPOCH=$(date +%s)
+      DAYS_LEFT=$(( ($EXPIRY_EPOCH - $NOW_EPOCH) / 86400 ))
+
+      echo "SSL Certificate for $DOMAIN expires in $DAYS_LEFT days"
+
+      if [ $DAYS_LEFT -lt 30 ]; then
+        echo "WARNING: Certificate expires soon!"
+        exit 1
+      fi
+
+  - type: "http"
+    name: "notify-slack-if-expiring"
+    url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    body: '{"text": "SSL Certificate Check Completed - Check logs for details"}'
+    timeout: "10s"

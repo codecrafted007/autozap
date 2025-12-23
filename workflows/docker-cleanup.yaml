@@ -1,0 +1,31 @@
+name: "docker-cleanup"
+description: "Clean up unused Docker resources weekly to free up disk space"
+
+trigger:
+  type: "cron"
+  schedule: "0 2 * * 0"  # Every Sunday at 2 AM
+
+actions:
+  - type: "bash"
+    name: "cleanup-stopped-containers"
+    command: "docker container prune -f && echo 'Stopped containers cleaned'"
+
+  - type: "bash"
+    name: "cleanup-dangling-images"
+    command: "docker image prune -f && echo 'Dangling images removed'"
+
+  - type: "bash"
+    name: "cleanup-old-images"
+    command: "docker image prune -af --filter until=168h && echo 'Images older than 7 days removed'"
+
+  - type: "bash"
+    name: "cleanup-unused-volumes"
+    command: "docker volume prune -f && echo 'Unused volumes cleaned'"
+
+  - type: "bash"
+    name: "cleanup-unused-networks"
+    command: "docker network prune -f && echo 'Unused networks removed'"
+
+  - type: "bash"
+    name: "show-disk-space-saved"
+    command: "df -h / | tail -1 | awk '{print \"Disk usage after cleanup: \" $5 \" used\"}'"

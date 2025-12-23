@@ -1,0 +1,69 @@
+name: "log-rotation-cleanup"
+description: "Automated log rotation, compression, and cleanup to manage disk space"
+
+trigger:
+  type: "cron"
+  schedule: "0 0 * * *"  # Daily at midnight
+
+actions:
+  - type: "bash"
+    name: "rotate-application-logs"
+    command: |
+      LOG_DIR="/var/log/myapp"
+      if [ -d "$LOG_DIR" ]; then
+        # Rotate current log
+        if [ -f "$LOG_DIR/app.log" ]; then
+          mv "$LOG_DIR/app.log" "$LOG_DIR/app-$(date +%Y%m%d).log"
+          touch "$LOG_DIR/app.log"
+          echo "Application log rotated"
+        fi
+      else
+        echo "Log directory not found: $LOG_DIR"
+      fi
+
+  - type: "bash"
+    name: "compress-old-logs"
+    command: |
+      LOG_DIR="/var/log/myapp"
+      # Compress logs older than 1 day
+      find "$LOG_DIR" -name "*.log" -mtime +1 ! -name "app.log" -exec gzip {} \;
+      echo "Old logs compressed"
+
+  - type: "bash"
+    name: "cleanup-nginx-logs"
+    command: |
+      # Compress nginx logs older than 1 day
+      find /var/log/nginx -name "*.log" -mtime +1 -exec gzip {} \;
+      # Delete compressed logs older than 30 days
+      find /var/log/nginx -name "*.gz" -mtime +30 -delete
+      echo "Nginx logs cleaned"
+
+  - type: "bash"
+    name: "cleanup-old-compressed-logs"
+    command: |
+      # Delete compressed logs older than 90 days
+      find /var/log -name "*.gz" -mtime +90 -delete
+      echo "Old compressed logs (>90 days) deleted"
+
+  - type: "bash"
+    name: "truncate-large-logs"
+    command: |
+      # Truncate logs larger than 1GB
+      find /var/log -type f -size +1G -exec sh -c 'echo "Truncated on $(date)" > "$1"' _ {} \;
+      echo "Large logs truncated"
+
+  - type: "bash"
+    name: "cleanup-journal-logs"
+    command: |
+      # Keep only last 7 days of systemd journal
+      journalctl --vacuum-time=7d
+      echo "Systemd journal cleaned"
+
+  - type: "bash"
+    name: "report-log-disk-usage"
+    command: |
+      echo "Log directory sizes:"
+      du -sh /var/log/* 2>/dev/null | sort -hr | head -10
+      echo ""
+      TOTAL=$(du -sh /var/log 2>/dev/null | cut -f1)
+      echo "Total log disk usage: $TOTAL"

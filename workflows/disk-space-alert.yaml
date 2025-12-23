@@ -1,0 +1,66 @@
+name: "disk-space-monitor"
+description: "Monitor disk space usage and alert when threshold is exceeded"
+
+trigger:
+  type: "cron"
+  schedule: "*/15 * * * *"  # Every 15 minutes
+
+actions:
+  - type: "bash"
+    name: "check-root-partition"
+    command: |
+      THRESHOLD=80
+      USAGE=$(df -h / | tail -1 | awk '{print $5}' | sed 's/%//')
+
+      echo "Root partition usage: ${USAGE}%"
+
+      if [ $USAGE -gt $THRESHOLD ]; then
+        echo "WARNING: Disk usage above ${THRESHOLD}%"
+        exit 1
+      else
+        echo "Disk usage OK (below ${THRESHOLD}%)"
+      fi
+
+  - type: "bash"
+    name: "check-var-partition"
+    command: |
+      THRESHOLD=85
+      USAGE=$(df -h /var 2>/dev/null | tail -1 | awk '{print $5}' | sed 's/%//' || echo "0")
+
+      if [ "$USAGE" != "0" ]; then
+        echo "/var partition usage: ${USAGE}%"
+        if [ $USAGE -gt $THRESHOLD ]; then
+          echo "WARNING: /var disk usage above ${THRESHOLD}%"
+          exit 1
+        fi
+      else
+        echo "/var is on root partition"
+      fi
+
+  - type: "bash"
+    name: "find-large-directories"
+    command: |
+      echo "Top 5 largest directories:"
+      du -sh /* 2>/dev/null | sort -hr | head -5
+
+  - type: "bash"
+    name: "check-inode-usage"
+    command: |
+      THRESHOLD=80
+      USAGE=$(df -i / | tail -1 | awk '{print $5}' | sed 's/%//')
+
+      echo "Inode usage: ${USAGE}%"
+
+      if [ $USAGE -gt $THRESHOLD ]; then
+        echo "WARNING: High inode usage detected"
+        exit 1
+      fi
+
+  - type: "http"
+    name: "alert-ops-team"
+    url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    body: '{"text": "ALERT: Disk space threshold exceeded! Check server immediately."}'
+    timeout: "10s"

@@ -1,0 +1,105 @@
+name: "system-health-check"
+description: "Comprehensive system health monitoring - CPU, memory, load, processes"
+
+trigger:
+  type: "cron"
+  schedule: "*/10 * * * *"  # Every 10 minutes
+
+actions:
+  - type: "bash"
+    name: "check-cpu-usage"
+    command: |
+      CPU_USAGE=$(top -l 1 | grep "CPU usage" | awk '{print $3}' | sed 's/%//' 2>/dev/null || \
+                  top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//')
+
+      echo "CPU Usage: ${CPU_USAGE}%"
+
+      THRESHOLD=80
+      if (( $(echo "$CPU_USAGE > $THRESHOLD" | bc -l 2>/dev/null || echo 0) )); then
+        echo "WARNING: High CPU usage detected!"
+        exit 1
+      fi
+
+  - type: "bash"
+    name: "check-memory-usage"
+    command: |
+      # macOS
+      MEM_USAGE=$(vm_stat 2>/dev/null | awk '/Pages active/ {active=$3} /Pages wired/ {wired=$4} /Pages free/ {free=$3} END {print int((active+wired)/(active+wired+free)*100)}' 2>/dev/null || \
+                 # Linux
+                 free | grep Mem | awk '{print int($3/$2 * 100)}')
+
+      echo "Memory Usage: ${MEM_USAGE}%"
+
+      if [ $MEM_USAGE -gt 85 ]; then
+        echo "WARNING: High memory usage detected!"
+        exit 1
+      fi
+
+  - type: "bash"
+    name: "check-load-average"
+    command: |
+      LOAD=$(uptime | awk -F'load average:' '{print $2}' | awk -F, '{print $1}' | xargs)
+      CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+
+      echo "Load average (1 min): $LOAD on $CORES cores"
+
+      # Alert if load > number of cores
+      if (( $(echo "$LOAD > $CORES" | bc -l 2>/dev/null || echo 0) )); then
+        echo "WARNING: High load average!"
+        exit 1
+      fi
+
+  - type: "bash"
+    name: "check-zombie-processes"
+    command: |
+      ZOMBIES=$(ps aux | awk '{if ($8=="Z") print}' | wc -l)
+
+      echo "Zombie processes: $ZOMBIES"
+
+      if [ $ZOMBIES -gt 5 ]; then
+        echo "WARNING: Too many zombie processes!"
+        ps aux | awk '{if ($8=="Z") print}'
+        exit 1
+      fi
+
+  - type: "bash"
+    name: "check-swap-usage"
+    command: |
+      # Linux
+      SWAP_USAGE=$(free | grep Swap | awk '{if ($2>0) print int($3/$2 * 100); else print 0}' 2>/dev/null || echo "0")
+
+      echo "Swap Usage: ${SWAP_USAGE}%"
+
+      if [ $SWAP_USAGE -gt 50 ]; then
+        echo "WARNING: High swap usage indicates memory pressure!"
+        exit 1
+      fi
+
+  - type: "bash"
+    name: "check-critical-services"
+    command: |
+      echo "Checking critical services..."
+
+      # Example services to check (adjust for your environment)
+      SERVICES=("sshd" "nginx" "docker")
+
+      for service in "${SERVICES[@]}"; do
+        # systemd
+        if systemctl is-active --quiet $service 2>/dev/null; then
+          echo "✓ $service is running"
+        # macOS
+        elif pgrep -x $service > /dev/null 2>&1; then
+          echo "✓ $service is running"
+        else
+          echo "✗ $service is NOT running (might not be installed)"
+        fi
+      done
+
+  - type: "http"
+    name: "notify-health-status"
+    url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    body: '{"text": "System Health Check: All systems operational ✅"}'
+    timeout: "10s"
