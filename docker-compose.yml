@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  autozap:
+    build: .
+    container_name: autozap
+    restart: unless-stopped
+    volumes:
+      - ./workflows:/workflows:ro
+      - ./logs:/var/log/autozap
+      # Mount docker socket for docker-based workflows
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=America/New_York
+    # Example: run a specific workflow
+    command: run /workflows/sample.yaml

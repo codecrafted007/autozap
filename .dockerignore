@@ -1,0 +1,9 @@
+.git
+.github
+*.md
+vendor/
+coverage.*
+*.out
+autozap
+ACTION_PLAN.md
+DEVELOPMENT_CONTEXT.md
