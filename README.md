@@ -3,6 +3,7 @@
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Test Coverage](https://img.shields.io/badge/coverage-61.2%25-brightgreen.svg)](#-testing)
+[![Production Workflows](https://img.shields.io/badge/workflows-7%20production--ready-success.svg)](workflows/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/codecrafted007/autozap)](https://goreportcard.com/report/github.com/codecrafted007/autozap)
 [![CI](https://github.com/codecrafted007/autozap/workflows/CI/badge.svg)](https://github.com/codecrafted007/autozap/actions)
 
@@ -10,7 +11,7 @@
 
 **Think "Zapier for DevOps" or "Cron on Steroids"** - schedule tasks, watch files, chain actions, and automate your infrastructure with simple YAML configs.
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Examples](#-real-world-examples) • [Architecture](#%EF%B8%8F-architecture) • [Testing](#-testing) • [Documentation](#-documentation)
+[Features](#-features) • [Production Workflows](#-production-workflows) • [Quick Start](#-quick-start) • [Examples](#-quick-examples) • [Architecture](#%EF%B8%8F-architecture) • [Testing](#-testing) • [Documentation](#-documentation)
 
 ---
 
@@ -25,6 +26,8 @@ Modern DevOps teams need automation that's:
 - **Extensible**: Plugin architecture for custom triggers and actions
 
 Perfect for: API health monitoring, automated backups, log rotation, deployment automation, infrastructure monitoring, file processing pipelines.
+
+**Includes 7 production-ready workflows** covering Docker cleanup, SSL monitoring, database backups, disk space alerts, system health checks, API monitoring, and log rotation.
 
 ---
 ✅ Current Features
@@ -50,6 +53,32 @@ Perfect for: API health monitoring, automated backups, log rotation, deployment 
 - **📊 Structured Logging**: Production-grade JSON logs with Uber's Zap
 - **🚨 Error Handling**: Detailed error messages with exit codes and response bodies
 - **📈 Execution Tracking**: Full visibility into workflow triggers and action results
+
+---
+
+## 🎯 Production Workflows
+
+AutoZap includes **7 battle-tested workflows** for real-world DevOps scenarios. These aren't toy examples - they're production-ready automation that solves actual infrastructure problems.
+
+| Workflow | Purpose | Schedule | Impact |
+|----------|---------|----------|--------|
+| 🐳 **[docker-cleanup.yaml](workflows/docker-cleanup.yaml)** | Clean Docker resources (containers, images, volumes, networks) | Weekly | Prevents disk space issues |
+| 🔒 **[ssl-cert-monitor.yaml](workflows/ssl-cert-monitor.yaml)** | Monitor SSL certificate expiry with alerts | Daily | Prevents certificate-related outages |
+| 💾 **[postgres-backup.yaml](workflows/postgres-backup.yaml)** | Automated database backups with compression & retention | Daily | Data protection & disaster recovery |
+| 💽 **[disk-space-alert.yaml](workflows/disk-space-alert.yaml)** | Monitor disk usage with threshold alerts | Every 15 min | Proactive capacity management |
+| 🏥 **[system-health-check.yaml](workflows/system-health-check.yaml)** | CPU, memory, load, swap, and service monitoring | Every 10 min | System reliability & performance |
+| 🌐 **[api-health-check.yaml](workflows/api-health-check.yaml)** | API health checks with response time monitoring | Every 5 min | Service availability & SLA compliance |
+| 📝 **[log-rotation.yaml](workflows/log-rotation.yaml)** | Automated log rotation, compression, and cleanup | Daily | Storage management & cost optimization |
+
+### What Makes These Production-Ready?
+
+✅ **Error Handling** - Proper exit codes, validation, and fallback logic
+✅ **Configurable Thresholds** - Adjust alerts and schedules for your environment
+✅ **Integration Ready** - Slack, PagerDuty, OpsGenie webhooks included
+✅ **Best Practices** - Follows SRE principles for monitoring and automation
+✅ **Well Documented** - Comprehensive README with customization guide
+
+> 📚 **[View All Workflows →](workflows/README.md)** | Includes setup instructions, customization guide, and troubleshooting
 
 ---
 
@@ -106,7 +135,9 @@ That's it! AutoZap will check your API every 5 minutes and log the results.
 
 ---
 
-## 📚 Real-World Examples
+## 📚 Quick Examples
+
+Below are simplified examples to get you started. For **production-ready workflows**, see the [Production Workflows](#-production-workflows) section above.
 
 ### 🐳 Docker Container Cleanup
 ```yaml
@@ -296,7 +327,7 @@ actions:
     body: '{"message": "Disk space critical", "priority": "P1"}'
 ```
 
-> 💡 See [`workflows/`](workflows/) directory for more production-ready examples
+> 🚀 **Want production-ready workflows?** Check out our [7 battle-tested examples](workflows/README.md) with full documentation, error handling, and real-world use cases.
 
 ---
 
@@ -569,8 +600,9 @@ go mod tidy
 
 ## 📋 Documentation
 
+- **[Production Workflows](workflows/README.md)** - 7 battle-tested workflows with setup guide
 - **[Workflow Documentation](autozap_workflow.md)** - Complete workflow execution guide
-- **[Examples](workflows/)** - Production-ready workflow examples
+- **[Examples Directory](workflows/)** - All workflow YAML files
 - **[Contributing](CONTRIBUTING.md)** - How to contribute to AutoZap
 
 ---
