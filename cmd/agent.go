@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/codecrafted007/autozap/internal/logger"
+	"github.com/codecrafted007/autozap/internal/metrics"
 	"github.com/codecrafted007/autozap/internal/parser"
+	"github.com/codecrafted007/autozap/internal/server"
 	"github.com/codecrafted007/autozap/internal/trigger"
 	"github.com/codecrafted007/autozap/internal/workflow"
 	"github.com/fsnotify/fsnotify"
@@ -44,12 +46,32 @@ Example:
 		// Get flags
 		watch, _ := cmd.Flags().GetBool("watch")
 		logDir, _ := cmd.Flags().GetString("log-dir")
+		httpPort, _ := cmd.Flags().GetInt("http-port")
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+		if dryRun {
+			logger.L().Info("[DRY RUN MODE] No workflows will be executed")
+		}
 
 		logger.L().Infow("Starting AutoZap Agent",
 			"workflow_directory", workflowDir,
 			"hot_reload", watch,
 			"log_directory", logDir,
+			"http_port", httpPort,
+			"dry_run", dryRun,
 		)
+
+		// Start HTTP server for metrics and health endpoints
+		srv := server.NewServer(httpPort)
+		if err := srv.Start(); err != nil {
+			logger.L().Errorw("Failed to start HTTP server",
+				"error", err,
+			)
+			return
+		}
+
+		// Track agent start time for uptime metric
+		agentStartTime := time.Now()
 
 		// Validate log directory if specified
 		if logDir != "" {
@@ -84,12 +106,40 @@ Example:
 
 		// Load and start all workflows
 		activeWorkflows := &sync.Map{} // map[string]context.CancelFunc
-		if err := loadWorkflows(ctx, workflowDir, logDir, activeWorkflows); err != nil {
+		if err := loadWorkflows(ctx, workflowDir, logDir, activeWorkflows, dryRun); err != nil {
 			logger.L().Errorw("Failed to load workflows",
 				"error", err,
 			)
 			return
 		}
+
+		// In dry-run mode, exit after showing what would be done
+		if dryRun {
+			logger.L().Info("[DRY RUN] Dry run complete. No workflows were started.")
+			return
+		}
+
+		// Update active workflows metric
+		count := 0
+		activeWorkflows.Range(func(_, _ interface{}) bool {
+			count++
+			return true
+		})
+		metrics.SetActiveWorkflows(count)
+
+		// Start goroutine to periodically update agent uptime
+		go func() {
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					metrics.UpdateAgentUptime(agentStartTime)
+				}
+			}
+		}()
 
 		// Setup file watcher for hot-reload
 		var watcher *fsnotify.Watcher
@@ -117,12 +167,19 @@ Example:
 		// Give workflows time to cleanup
 		time.Sleep(2 * time.Second)
 
+		// Shutdown HTTP server
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := srv.Stop(shutdownCtx); err != nil {
+			logger.L().Errorw("Error shutting down HTTP server", "error", err)
+		}
+
 		logger.L().Info("AutoZap Agent stopped successfully")
 	},
 }
 
 // loadWorkflows discovers and starts all workflow files in a directory
-func loadWorkflows(ctx context.Context, workflowDir, logDir string, activeWorkflows *sync.Map) error {
+func loadWorkflows(ctx context.Context, workflowDir, logDir string, activeWorkflows *sync.Map, dryRun bool) error {
 	// Find all YAML files
 	pattern := filepath.Join(workflowDir, "*.yaml")
 	files, err := filepath.Glob(pattern)
@@ -149,6 +206,31 @@ func loadWorkflows(ctx context.Context, workflowDir, logDir string, activeWorkfl
 		"count", len(files),
 		"directory", workflowDir,
 	)
+
+	// In dry-run mode, show what would be started
+	if dryRun {
+		logger.L().Infof("[DRY RUN] Would start %d workflows:", len(files))
+		for i, file := range files {
+			wf, err := parser.ParseWorkflowFile(file)
+			if err != nil {
+				logger.L().Errorf("[DRY RUN] Would fail to load: %s (error: %v)", file, err)
+				continue
+			}
+			logger.L().Infof("[DRY RUN]   %d. %s", i+1, wf.Name)
+			logger.L().Infof("[DRY RUN]      File: %s", file)
+			logger.L().Infof("[DRY RUN]      Trigger: %s", wf.Trigger.Type)
+
+			switch wf.Trigger.Type {
+			case workflow.TriggerTypeCron:
+				logger.L().Infof("[DRY RUN]      Schedule: %s", wf.Trigger.Schedule)
+			case workflow.TriggerTypeFileWatch:
+				logger.L().Infof("[DRY RUN]      Watch: %s", wf.Trigger.Path)
+			}
+
+			logger.L().Infof("[DRY RUN]      Actions: %d", len(wf.Actions))
+		}
+		return nil
+	}
 
 	// Load each workflow
 	successCount := 0
@@ -359,4 +441,6 @@ func init() {
 	// Add flags
 	agentCmd.Flags().Bool("watch", true, "Enable hot-reload for workflow changes")
 	agentCmd.Flags().String("log-dir", "", "Directory for per-workflow log files (default: stdout)")
+	agentCmd.Flags().Int("http-port", 8080, "HTTP port for metrics and health endpoints")
+	agentCmd.Flags().Bool("dry-run", false, "Show what would be executed without starting workflows")
 }

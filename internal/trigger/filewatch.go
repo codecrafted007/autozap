@@ -6,6 +6,7 @@ import (
 
 	"github.com/codecrafted007/autozap/internal/action"
 	"github.com/codecrafted007/autozap/internal/logger"
+	"github.com/codecrafted007/autozap/internal/metrics"
 	"github.com/codecrafted007/autozap/internal/workflow"
 	"github.com/fsnotify/fsnotify"
 )
@@ -61,6 +62,9 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 		"watching_path", wf.Trigger.Path,
 		"events_to_watch", wf.Trigger.Events,
 	)
+
+	// Register workflow info metric
+	metrics.RegisterWorkflow(wf.Name, string(workflow.TriggerTypeFileWatch), wf.Trigger.Path)
 
 	// Start go routine to handle file events
 	go func() {
@@ -118,12 +122,19 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 				}
 
 				if shouldTrigger {
+					// Record trigger fire
+					metrics.RecordTriggerFire(wf.Name, string(workflow.TriggerTypeFileWatch))
+
 					logger.L().Infow("File watch trigger fired for worflow",
 						"workflow_name", wf.Name,
 						"event_type", event.Op.String(),
 						"file_path", event.Name,
 						"timestamp", time.Now().Format(time.RFC3339),
 					)
+
+					// Track workflow execution time
+					workflowStartTime := time.Now()
+					workflowStatus := "success"
 
 					// Exceute actions
 					for i, act := range wf.Actions {
@@ -134,12 +145,13 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 								"action_name", act.Name,
 								"action_index", i,
 								"command", act.Command)
-							if err := action.ExecuteBashAction(&act); err != nil {
+							if err := action.ExecuteBashAction(&act, wf.Name); err != nil{
 								logger.L().Errorw("Failed to execute Bash Action",
 									"workflow_name", wf.Name,
 									"action_name", act.Name,
 									"action_index", i,
 									"error", err)
+								workflowStatus = "failed"
 							}
 						case workflow.ActionTypeHTTP:
 							logger.L().Infow("Attempting to execute HTTP Action",
@@ -148,7 +160,14 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 								"action_index", i,
 								"url", act.URL,
 								"method", act.Method)
-							// TODO: Implement HTTP action execution
+							if err := action.ExecuteHttpAction(&act, wf.Name); err != nil {
+								logger.L().Errorw("Failed to execute HTTP Action",
+									"workflow_name", wf.Name,
+									"action_name", act.Name,
+									"action_index", i,
+									"error", err)
+								workflowStatus = "failed"
+							}
 						case workflow.ActionTypeCustom:
 							logger.L().Infow("Custom action type detected, but execution not yet implemented (triggered by filewatch).",
 								"workflow_name", wf.Name,
@@ -164,8 +183,13 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 								"action_name", act.Name,
 								"action_type", act.Type.String(),
 							)
+							workflowStatus = "failed"
 						}
 					} // End of execte actions
+
+					// Record workflow execution metrics
+					workflowDuration := time.Since(workflowStartTime)
+					metrics.RecordWorkflowExecution(wf.Name, workflowStatus, workflowDuration)
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {

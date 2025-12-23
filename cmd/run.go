@@ -18,11 +18,18 @@ var runCmd = &cobra.Command{
 	Long:  `The run command takes a YAML workflow file as input and executes the defined automation`,
 	Run: func(cmd *cobra.Command, args []string) {
 		workflowFile := args[0]
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+		if dryRun {
+			logger.L().Info("[DRY RUN MODE] No actions will be executed")
+		}
+
 		logger.L().Infof("Attempting to run workflow from file: %s", workflowFile)
 		logger.L().Infow("Workflow processing initiated",
 			"workflow_file", workflowFile,
 			"source_type", "cli_argument",
 			"status", "starting",
+			"dry_run", dryRun,
 		)
 		wf, err := parser.ParseWorkflowFile(workflowFile)
 		if err != nil {
@@ -37,6 +44,36 @@ var runCmd = &cobra.Command{
 			"actions_count", len(wf.Actions),
 			"trigger_schedule", wf.Trigger.Schedule,
 		)
+
+		// In dry-run mode, show what would be executed
+		if dryRun {
+			logger.L().Infof("[DRY RUN] Would start workflow: %s", wf.Name)
+			logger.L().Infof("[DRY RUN] Trigger: %s", wf.Trigger.Type)
+
+			switch wf.Trigger.Type {
+			case workflow.TriggerTypeCron:
+				logger.L().Infof("[DRY RUN] Schedule: %s", wf.Trigger.Schedule)
+			case workflow.TriggerTypeFileWatch:
+				logger.L().Infof("[DRY RUN] Watch path: %s", wf.Trigger.Path)
+				logger.L().Infof("[DRY RUN] Events: %v", wf.Trigger.Events)
+			}
+
+			logger.L().Infof("[DRY RUN] Would execute %d actions:", len(wf.Actions))
+			for i, action := range wf.Actions {
+				logger.L().Infof("[DRY RUN]   %d. [%s] %s", i+1, action.Type, action.Name)
+				switch action.Type {
+				case workflow.ActionTypeBash:
+					logger.L().Infof("[DRY RUN]      Command: %s", action.Command)
+				case workflow.ActionTypeHTTP:
+					logger.L().Infof("[DRY RUN]      %s %s", action.Method, action.URL)
+				case workflow.ActionTypeCustom:
+					logger.L().Infof("[DRY RUN]      Function: %s", action.FunctionName)
+				}
+			}
+
+			logger.L().Info("[DRY RUN] Dry run complete. No actions were executed.")
+			return
+		}
 
 		for i, action := range wf.Actions {
 			logger.L().Infow("Parsed action",
@@ -76,4 +113,7 @@ var runCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(runCmd)
+
+	// Add flags
+	runCmd.Flags().Bool("dry-run", false, "Show what would be executed without running actions")
 }

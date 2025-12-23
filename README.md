@@ -11,7 +11,7 @@
 
 **Think "Zapier for DevOps" or "Cron on Steroids"** - schedule tasks, watch files, chain actions, and automate your infrastructure with simple YAML configs.
 
-[Features](#-features) • [Production Workflows](#-production-workflows) • [Quick Start](#-quick-start) • [Examples](#-quick-examples) • [Architecture](#%EF%B8%8F-architecture) • [Testing](#-testing) • [Documentation](#-documentation)
+[Features](#-features) • [Production Workflows](#-production-workflows) • [Quick Start](#-quick-start) • [Monitoring](#-monitoring--observability) • [Examples](#-quick-examples) • [Architecture](#%EF%B8%8F-architecture) • [Testing](#-testing) • [Documentation](#-documentation)
 
 ---
 
@@ -49,11 +49,14 @@ Perfect for: API health monitoring, automated backups, log rotation, deployment 
 - **🔌 Custom Functions**: Extensible framework for plugin-based actions
 - **⛓️ Sequential Execution**: Reliable, ordered action chains with comprehensive error logging
 
-### Observability
+### Observability & Monitoring
 - **📊 Structured Logging**: High-performance JSON logs using **Uber Zap** with dedicated logger per workflow
+- **📈 Prometheus Metrics**: `/metrics` endpoint with workflow execution, duration, and action tracking
+- **🏥 Health Endpoints**: `/health`, `/ready`, and `/status` endpoints for Kubernetes probes
 - **🚨 Error Handling**: Detailed error messages with exit codes and response bodies
-- **📈 Execution Tracking**: Full visibility into workflow triggers and action results
 - **📁 Per-Workflow Logs**: Optional separate log files for isolated debugging
+- **✅ Workflow Validation**: Pre-deployment validation command for CI/CD pipelines
+- **🧪 Dry-Run Mode**: Test workflows without execution for safe debugging
 
 ---
 
@@ -135,7 +138,7 @@ actions:
 **Or use Agent Mode to run ALL workflows automatically:**
 
 ```bash
-# Run all workflows in ./workflows directory
+# Run all workflows in ./workflows directory with metrics
 ./autozap agent
 
 # Or specify a custom directory
@@ -146,6 +149,20 @@ actions:
 
 # Enable per-workflow log files (easier debugging)
 ./autozap agent --log-dir=/var/log/autozap
+
+# Custom HTTP port for metrics/health endpoints (default: 8080)
+./autozap agent --http-port 9090
+```
+
+**Test and validate workflows:**
+
+```bash
+# Validate workflows before deployment
+./autozap validate ./workflows/*.yaml
+
+# Test workflow without executing actions
+./autozap run health-check.yaml --dry-run
+./autozap agent ./workflows --dry-run
 ```
 
 ### 🤖 Agent Mode (Production-Ready)
@@ -177,6 +194,244 @@ Agent mode is the recommended way to run AutoZap in production. It automatically
 - 🔄 **Hot-reload** means you can add workflows without restarting
 - 🐳 **Container-friendly** with proper signal handling
 - 📊 **Structured logging** for production observability
+
+---
+
+## 📊 Monitoring & Observability
+
+### 🎯 Prometheus Metrics
+
+AutoZap exposes Prometheus-compatible metrics for production monitoring and alerting.
+
+**Start the agent with metrics enabled:**
+```bash
+./autozap agent ./workflows --http-port 8080
+```
+
+**Access metrics:**
+```bash
+curl http://localhost:8080/metrics
+```
+
+**Available Metrics:**
+
+| Metric | Type | Description | Labels |
+|--------|------|-------------|--------|
+| `autozap_workflow_executions_total` | Counter | Total workflow executions | workflow, status |
+| `autozap_workflow_execution_duration_seconds` | Histogram | Workflow execution time | workflow |
+| `autozap_action_executions_total` | Counter | Total action executions | workflow, action, action_type, status |
+| `autozap_action_execution_duration_seconds` | Histogram | Action execution time | workflow, action, action_type |
+| `autozap_trigger_fires_total` | Counter | Trigger fire count | workflow, trigger_type |
+| `autozap_agent_active_workflows` | Gauge | Currently active workflows | - |
+| `autozap_agent_uptime_seconds` | Gauge | Agent uptime | - |
+| `autozap_workflow_last_execution_timestamp` | Gauge | Last execution timestamp | workflow |
+| `autozap_workflow_info` | Gauge | Workflow metadata | workflow, trigger_type, schedule |
+
+**Grafana Dashboard Example:**
+```promql
+# Success rate by workflow (last 24h)
+rate(autozap_workflow_executions_total{status="success"}[24h])
+/
+rate(autozap_workflow_executions_total[24h])
+
+# Average workflow duration
+rate(autozap_workflow_execution_duration_seconds_sum[5m])
+/
+rate(autozap_workflow_execution_duration_seconds_count[5m])
+
+# Failed actions in last hour
+sum(increase(autozap_action_executions_total{status="failed"}[1h])) by (workflow, action)
+```
+
+### 🏥 Health Endpoints
+
+Production-ready health check endpoints for Kubernetes and load balancers.
+
+**Available Endpoints:**
+
+| Endpoint | Purpose | Use Case |
+|----------|---------|----------|
+| `GET /health` | Liveness probe | Returns 200 if agent is running |
+| `GET /ready` | Readiness probe | Returns 200 if workflows are loaded |
+| `GET /status` | Detailed status | JSON with uptime, workflow states, counts |
+
+**Example responses:**
+
+```bash
+# Liveness probe (Kubernetes)
+curl http://localhost:8080/health
+```
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-12-23T23:15:09Z"
+}
+```
+
+```bash
+# Detailed status
+curl http://localhost:8080/status
+```
+```json
+{
+  "status": "healthy",
+  "uptime": "2h15m30s",
+  "workflows": {
+    "total": 7,
+    "running": 7,
+    "failed": 0,
+    "details": [
+      {
+        "name": "docker-cleanup",
+        "status": "running",
+        "trigger_type": "cron",
+        "last_execution": "2025-12-23T02:00:00Z"
+      }
+    ]
+  },
+  "timestamp": "2025-12-23T23:15:09Z"
+}
+```
+
+**Kubernetes Integration:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: autozap
+spec:
+  containers:
+  - name: autozap
+    image: autozap:latest
+    ports:
+    - containerPort: 8080
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8080
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    readinessProbe:
+      httpGet:
+        path: /ready
+        port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 10
+```
+
+### ✅ Workflow Validation
+
+Validate workflow files before deployment - perfect for CI/CD pipelines.
+
+**Validate workflows:**
+```bash
+# Single file
+./autozap validate ./workflows/backup.yaml
+
+# Multiple files
+./autozap validate ./workflows/backup.yaml ./workflows/monitor.yaml
+
+# All workflows with glob pattern
+./autozap validate ./workflows/*.yaml
+
+# Strict mode (warnings become errors)
+./autozap validate ./workflows/*.yaml --strict
+```
+
+**Example output:**
+```
+🔍 Validating workflow files...
+
+Validating: workflows/docker-cleanup.yaml
+  ✓ YAML syntax valid
+  ✓ Workflow name: 'docker-cleanup'
+  ✓ Trigger type: 'cron'
+  ✓ Cron schedule: '0 2 * * 0'
+  ✓ Actions count: 6
+    [1] cleanup-stopped-containers (bash)
+    [2] cleanup-dangling-images (bash)
+    [3] cleanup-unused-volumes (bash)
+  ✓ Ready to deploy
+
+─────────────────────────────────────
+Validation Summary:
+  Total files: 7
+  ✓ Valid: 7
+  ✗ Invalid: 0
+─────────────────────────────────────
+
+✅ All workflows valid
+```
+
+**CI/CD Integration (GitHub Actions):**
+```yaml
+name: Validate Workflows
+on: [push, pull_request]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Build AutoZap
+        run: go build -o autozap .
+
+      - name: Validate Workflows
+        run: ./autozap validate ./workflows/*.yaml --strict
+```
+
+**What gets validated:**
+- ✅ YAML syntax correctness
+- ✅ Required fields (name, trigger, actions)
+- ✅ Trigger type and configuration
+- ✅ Cron schedule syntax
+- ✅ Action types and required fields
+- ✅ No duplicate workflow names
+- ⚠️ Warnings for mismatched trigger fields
+
+### 🧪 Dry-Run Mode
+
+Test workflows safely without executing any actions.
+
+**Dry-run commands:**
+```bash
+# Test single workflow
+./autozap run ./workflows/backup.yaml --dry-run
+
+# Test all workflows in agent mode
+./autozap agent ./workflows --dry-run
+```
+
+**Example output:**
+```
+[DRY RUN MODE] No actions will be executed
+[DRY RUN] Would start workflow: postgres-backup
+[DRY RUN] Trigger: cron
+[DRY RUN] Schedule: 0 1 * * *
+[DRY RUN] Would execute 4 actions:
+[DRY RUN]   1. [bash] dump-database
+[DRY RUN]      Command: pg_dump -U postgres mydb | gzip > backup.sql.gz
+[DRY RUN]   2. [bash] upload-to-s3
+[DRY RUN]      Command: aws s3 cp backup.sql.gz s3://backups/
+[DRY RUN]   3. [bash] cleanup-old-backups
+[DRY RUN]      Command: find /backups -mtime +7 -delete
+[DRY RUN]   4. [http] notify-team
+[DRY RUN]      POST https://hooks.slack.com/services/...
+[DRY RUN] Dry run complete. No actions were executed.
+```
+
+**Use cases:**
+- 🧪 Test new workflows before scheduling
+- 🐛 Debug workflow configuration issues
+- 📚 Training and documentation
+- 🔍 Verify workflow changes in CI/CD
+- 🛡️ Safety check before production deployment
 
 ### 📝 Logging with Uber Zap
 
@@ -547,7 +802,8 @@ autozap/
 ├── cmd/                    # CLI commands
 │   ├── root.go            # Root command
 │   ├── run.go             # Run workflow command
-│   └── agent.go           # Agent mode (planned)
+│   ├── agent.go           # Agent mode with hot-reload
+│   └── validate.go        # Workflow validation command
 ├── internal/
 │   ├── workflow/          # Workflow types and structures
 │   ├── parser/            # YAML parser and validator
@@ -557,8 +813,12 @@ autozap/
 │   ├── action/            # Action implementations
 │   │   ├── bash.go       # Bash command action
 │   │   └── http.go       # HTTP request action
+│   ├── metrics/           # Prometheus metrics
+│   │   └── metrics.go    # Metrics definitions and helpers
+│   ├── server/            # HTTP server for metrics/health
+│   │   └── server.go     # Health and metrics endpoints
 │   └── logger/            # Zap logger setup
-├── workflows/             # Example workflows
+├── workflows/             # Production-ready workflows
 ├── main.go               # Application entry point
 └── go.mod                # Go module definition
 ```
@@ -672,6 +932,10 @@ func TestMyFunction(t *testing.T) {
 
 ### Implemented ✅
 - **Agent Mode** - Auto-discover and run multiple workflows concurrently with hot-reload
+- **Prometheus Metrics** - `/metrics` endpoint with comprehensive workflow and action tracking
+- **Health Endpoints** - `/health`, `/ready`, `/status` for Kubernetes and monitoring
+- **Workflow Validation** - Pre-deployment validation command for CI/CD pipelines
+- **Dry-Run Mode** - Test workflows safely without execution
 - **Per-Workflow Logging** - Dedicated Uber Zap logger instance per workflow with optional file output
 - CRON-based scheduling with robfig/cron
 - File system watching with fsnotify
@@ -690,12 +954,15 @@ go mod tidy
 
 ### Roadmap 🗓️
 - [x] **Agent Mode**: Monitor directory for multiple workflows ✅ **IMPLEMENTED**
+- [x] **Prometheus Metrics**: Expose workflow metrics ✅ **IMPLEMENTED**
+- [x] **Health Endpoints**: Kubernetes-ready health checks ✅ **IMPLEMENTED**
+- [x] **Workflow Validation**: Pre-deployment validation command ✅ **IMPLEMENTED**
+- [x] **Dry-Run Mode**: Safe workflow testing ✅ **IMPLEMENTED**
 - [ ] **Workflow State**: Track execution history in SQLite
 - [ ] **Templating**: Variable substitution and dynamic values
 - [ ] **Retry Logic**: Automatic retries with exponential backoff
 - [ ] **Conditionals**: Skip actions based on previous results
 - [ ] **Webhook Trigger**: HTTP endpoint to trigger workflows
-- [ ] **Prometheus Metrics**: Expose workflow metrics
 - [ ] **Web UI**: Dashboard for workflow management
 - [ ] **Plugin System**: External action/trigger plugins
 - [ ] **Secrets Management**: Encrypted credential storage
@@ -736,6 +1003,7 @@ Built with these excellent libraries:
 - [Zap](https://github.com/uber-go/zap) - Structured logging
 - [fsnotify](https://github.com/fsnotify/fsnotify) - File system notifications
 - [cron](https://github.com/robfig/cron) - CRON scheduling
+- [Prometheus Client](https://github.com/prometheus/client_golang) - Metrics and monitoring
 
 ---
 

@@ -10,21 +10,39 @@ import (
 	"time"
 
 	"github.com/codecrafted007/autozap/internal/logger"
+	"github.com/codecrafted007/autozap/internal/metrics"
 	"github.com/codecrafted007/autozap/internal/workflow"
 )
 
 // ExecuteHTTPAction executes an HTTP request defined in a workflow.Action.
 // It handles method, URL, headers, body, timeout, and response validation.
-func ExecuteHttpAction(action *workflow.Action) error {
+func ExecuteHttpAction(action *workflow.Action, workflowName ...string) error {
+	// Track action execution time
+	startTime := time.Now()
+	var executionError error
+
+	// Defer metrics recording
+	defer func() {
+		if len(workflowName) > 0 && workflowName[0] != "" {
+			status := "success"
+			if executionError != nil {
+				status = "failed"
+			}
+			metrics.RecordActionExecution(workflowName[0], action.Name, string(workflow.ActionTypeHTTP), status, time.Since(startTime))
+		}
+	}()
 
 	if action.Type != workflow.ActionTypeHTTP {
-		return fmt.Errorf("invalid action type expected '%s' got '%s' ", workflow.ActionTypeHTTP.String(), action.Type.String())
+		executionError = fmt.Errorf("invalid action type expected '%s' got '%s' ", workflow.ActionTypeHTTP.String(), action.Type.String())
+		return executionError
 	}
 	if action.URL == "" {
-		return fmt.Errorf("http action '%s' has empty URL", action.Name)
+		executionError = fmt.Errorf("http action '%s' has empty URL", action.Name)
+		return executionError
 	}
 	if action.Method == "" {
-		return fmt.Errorf("http action '%s' has empty method", action.Name)
+		executionError = fmt.Errorf("http action '%s' has empty method", action.Name)
+		return executionError
 	}
 
 	logger.L().Infow("Executing http action",
@@ -40,7 +58,8 @@ func ExecuteHttpAction(action *workflow.Action) error {
 	req, err := http.NewRequest(action.Method, action.URL, requestBody)
 	if err != nil {
 		logger.L().Errorw("Failed to create HTTP request", "error", err, "action_name", action.Name)
-		return fmt.Errorf("failed to create HTTP request: %w", err)
+		executionError = fmt.Errorf("failed to create HTTP request: %w", err)
+		return executionError
 	}
 
 	for key, value := range action.Headers {
@@ -54,7 +73,8 @@ func ExecuteHttpAction(action *workflow.Action) error {
 		duration, parseError := time.ParseDuration(action.Timeout)
 		if parseError != nil {
 			logger.L().Errorw("Invalid timeout duration", "error", parseError, "timeout", action.Timeout, "action_name", action.Name)
-			return fmt.Errorf("invalid timeout duration: %w", parseError)
+			executionError = fmt.Errorf("invalid timeout duration: %w", parseError)
+			return executionError
 		}
 
 		ctx, cancel = context.WithTimeout(context.Background(), duration)
@@ -69,9 +89,11 @@ func ExecuteHttpAction(action *workflow.Action) error {
 	if err != nil {
 
 		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("HTTP action '%s' timed out after %s: %v", action.Name, action.Timeout, err)
+			executionError = fmt.Errorf("HTTP action '%s' timed out after %s: %v", action.Name, action.Timeout, err)
+			return executionError
 		}
-		return fmt.Errorf("HTTP request failed for action '%s': %v", action.Name, err)
+		executionError = fmt.Errorf("HTTP request failed for action '%s': %v", action.Name, err)
+		return executionError
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -82,7 +104,8 @@ func ExecuteHttpAction(action *workflow.Action) error {
 	respBodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.L().Errorw("Failed to read HTTP response body", "error", err, "action_name", action.Name)
-		return fmt.Errorf("failed to read HTTP response body: %w", err)
+		executionError = fmt.Errorf("failed to read HTTP response body: %w", err)
+		return executionError
 	}
 	responseBody := string(respBodyBytes)
 
@@ -111,9 +134,9 @@ func ExecuteHttpAction(action *workflow.Action) error {
 					expectedStatuses = append(expectedStatuses, val)
 				} else {
 					// Status cannot have other data type other than Int
-					err := fmt.Errorf("HTTP action '%s': invalid type in expect_status list. Expected integer, got %T", action.Name, s)
-					logger.L().Errorw("Invalid type in expect_status list", "error", err, "action_name", action.Name)
-					return err
+					executionError = fmt.Errorf("HTTP action '%s': invalid type in expect_status list. Expected integer, got %T", action.Name, s)
+					logger.L().Errorw("Invalid type in expect_status list", "error", executionError, "action_name", action.Name)
+					return executionError
 				}
 			}
 		}
@@ -126,9 +149,9 @@ func ExecuteHttpAction(action *workflow.Action) error {
 		}
 
 		if !statusMatch {
-			err := fmt.Errorf("HTTP action '%s' failed: unexpected status code %d. Expected one of: %v", action.Name, resp.StatusCode, expectedStatuses)
-			logger.L().Errorw("Unexpected status code", "error", err, "action_name", action.Name, "status_code", resp.StatusCode, "expected_statuses", expectedStatuses)
-			return err
+			executionError = fmt.Errorf("HTTP action '%s' failed: unexpected status code %d. Expected one of: %v", action.Name, resp.StatusCode, expectedStatuses)
+			logger.L().Errorw("Unexpected status code", "error", executionError, "action_name", action.Name, "status_code", resp.StatusCode, "expected_statuses", expectedStatuses)
+			return executionError
 		}
 	}
 
@@ -136,9 +159,9 @@ func ExecuteHttpAction(action *workflow.Action) error {
 
 	if action.ExpectBodyContains != "" {
 		if !strings.Contains(responseBody, action.ExpectBodyContains) {
-			err := fmt.Errorf("HTTP action '%s' failed: response body does not contain expected string '%s'", action.Name, action.ExpectBodyContains)
-			logger.L().Errorw("Response body does not contain expected string", "error", err, "action_name", action.Name)
-			return err
+			executionError = fmt.Errorf("HTTP action '%s' failed: response body does not contain expected string '%s'", action.Name, action.ExpectBodyContains)
+			logger.L().Errorw("Response body does not contain expected string", "error", executionError, "action_name", action.Name)
+			return executionError
 		}
 	}
 

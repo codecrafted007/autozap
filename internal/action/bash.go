@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/codecrafted007/autozap/internal/logger"
+	"github.com/codecrafted007/autozap/internal/metrics"
 	"github.com/codecrafted007/autozap/internal/workflow"
 )
 
-func ExecuteBashAction(action *workflow.Action) error {
+func ExecuteBashAction(action *workflow.Action, workflowName ...string) error {
 	if action.Type != workflow.ActionTypeBash {
 		return fmt.Errorf("invalid action type for ExecuteBashAction: expected %s, got %s", workflow.ActionTypeBash, action.Type)
 	}
@@ -22,6 +24,9 @@ func ExecuteBashAction(action *workflow.Action) error {
 		"command", action.Command,
 	)
 
+	// Track action execution time
+	startTime := time.Now()
+
 	cmd := exec.Command("bash", "-c", action.Command)
 
 	var stdout, stderr bytes.Buffer
@@ -29,12 +34,22 @@ func ExecuteBashAction(action *workflow.Action) error {
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
+	duration := time.Since(startTime)
 
 	logFields := []interface{}{
 		"action_name", action.Name,
 		"command", action.Command,
 		"stdout", stdout.String(),
 		"stderr", stderr.String(),
+	}
+
+	// Record metrics if workflow name is provided
+	if len(workflowName) > 0 && workflowName[0] != "" {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		metrics.RecordActionExecution(workflowName[0], action.Name, string(workflow.ActionTypeBash), status, duration)
 	}
 
 	if err != nil {
