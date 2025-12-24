@@ -1,6 +1,7 @@
 package trigger
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-func StartFileWatchTrigger(wf *workflow.Workflow) error {
+func StartFileWatchTrigger(ctx context.Context, wf *workflow.Workflow) error {
 
 	if wf.Trigger.Type != workflow.TriggerTypeFileWatch {
 		err := fmt.Errorf("invalid trigger type for StartFileWatchTrigger: expected '%s', got '%s'", workflow.TriggerTypeFileWatch.String(), wf.Trigger.Type.String())
@@ -77,9 +78,20 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 			if closeErr := watcher.Close(); closeErr != nil {
 				logger.L().Errorw("Failed to close watcher", "error", closeErr, "workflow_name", wf.Name)
 			}
+			// Unregister workflow from registry
+			server.GetRegistry().UnregisterWorkflow(wf.Name)
+			logger.L().Infow("File watch trigger stopped successfully",
+				"workflow_name", wf.Name,
+				"path", wf.Trigger.Path)
 		}()
 		for {
 			select {
+			case <-ctx.Done():
+				logger.L().Infow("Stopping file watch trigger for workflow",
+					"workflow_name", wf.Name,
+					"watching_path", wf.Trigger.Path,
+					"reason", "context cancelled")
+				return
 			case event, ok := <-watcher.Events:
 				if !ok {
 					logger.L().Errorw("File watcher events channel closed", "workflow_name", wf.Name)

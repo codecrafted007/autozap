@@ -94,13 +94,13 @@ type Action struct {
 
 	//Field for ActionType Http
 
-	URL                string            `yaml:"url,omitempty"`
-	Method             string            `yaml:"method,omitempty"`
-	Headers            map[string]string `yaml:"headers,omitempty"`            // e.g., {"Content-Type": "application/json"}
-	Body               string            `yaml:"body,omitempty"`               // For HTTP actions
-	Timeout            string            `yaml:"timeout,omitempty"`            // e.g., "10s", will be parsed to time.Duration
-	ExpectStatus       interface{}       `yaml:"expectStatus,omitempty"`       // Can be int or []int for multiple valid codes
-	ExpectBodyContains string            `yaml:"expectBodyContains,omitempty"` // For HTTP actions
+	URL                string            `yaml:"url,omitempty" json:"url,omitempty"`
+	Method             string            `yaml:"method,omitempty" json:"method,omitempty"`
+	Headers            map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`                        // e.g., {"Content-Type": "application/json"}
+	Body               string            `yaml:"body,omitempty" json:"body,omitempty"`                              // For HTTP actions
+	Timeout            string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`                        // e.g., "10s", will be parsed to time.Duration
+	ExpectStatus       interface{}       `yaml:"expect_status,omitempty" json:"expectStatus,omitempty"`             // Can be int or []int for multiple valid codes
+	ExpectBodyContains string            `yaml:"expect_body_contains,omitempty" json:"expectBodyContains,omitempty"` // For HTTP actions
 
 	// Fields for ActionTypeCustom
 

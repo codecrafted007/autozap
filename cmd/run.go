@@ -4,6 +4,8 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
+
 	"github.com/codecrafted007/autozap/internal/database"
 	"github.com/codecrafted007/autozap/internal/logger"
 	"github.com/codecrafted007/autozap/internal/parser"
@@ -97,7 +99,7 @@ var runCmd = &cobra.Command{
 		// Start the cron trigger
 		switch wf.Trigger.Type {
 		case workflow.TriggerTypeCron:
-			if err := trigger.StartCronTrigger(wf); err != nil {
+			if err := trigger.StartCronTrigger(context.Background(), wf); err != nil {
 				logger.L().Errorw("Failed to start cron trigger",
 					"workflow_name", wf.Name,
 					"error", err,
@@ -105,7 +107,7 @@ var runCmd = &cobra.Command{
 				return // Exit the run function on error
 			}
 		case workflow.TriggerTypeFileWatch:
-			if err := trigger.StartFileWatchTrigger(wf); err != nil {
+			if err := trigger.StartFileWatchTrigger(context.Background(), wf); err != nil {
 				logger.L().Errorw("Failed to start file watch trigger",
 					"workflow_name", wf.Name,
 					"error", err,

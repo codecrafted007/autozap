@@ -3,7 +3,6 @@ package parser
 import (
 	"fmt"
 	"os"
-	"reflect"
 
 	"github.com/codecrafted007/autozap/internal/logger"
 	"github.com/codecrafted007/autozap/internal/workflow"
@@ -64,6 +63,11 @@ func validateWorkflow(wf *workflow.Workflow) error {
 			return fmt.Errorf("filewatch trigger requires at least one 'event'")
 		}
 
+		// Validate event names at parse time
+		if err := validateFileWatchEvents(wf.Trigger.Events); err != nil {
+			return fmt.Errorf("filewatch trigger validation failed: %w", err)
+		}
+
 		if wf.Trigger.Schedule != "" {
 			logger.L().Warnf("Filewatch trigger has unexpected 'schedule' field; it will be ignored.")
 		}
@@ -95,20 +99,8 @@ func validateWorkflow(wf *workflow.Workflow) error {
 				return fmt.Errorf("HTTP action %s at index %d must have a 'method'", action.Name, i)
 			}
 
-			if action.ExpectStatus != nil {
-				val := reflect.ValueOf(action.ExpectStatus)
-				if val.Kind() != reflect.Int && val.Kind() != reflect.Slice {
-					return fmt.Errorf("HTTP action %s at index %d 'expectStatus' must be an int or a slice of ints, got %s", action.Name, i, val.Kind())
-				}
-
-				if val.Kind() == reflect.Slice {
-					for j := 0; j < val.Len(); j++ {
-						if val.Index(j).Kind() != reflect.Int {
-							return fmt.Errorf("HTTP action %s at index %d 'expectStatus' slice must contain only integers, found %s at index %d", action.Name, i, val.Index(j).Kind(), j)
-						}
-					}
-				}
-			}
+			// ExpectStatus validation is handled at runtime with proper type conversion
+			// We allow int, float64, or []interface{} from YAML unmarshaling
 
 			// Warn if Bash/Custom fields are present
 			if action.Command != "" || action.FunctionName != "" || action.Arguments != nil {
@@ -123,6 +115,25 @@ func validateWorkflow(wf *workflow.Workflow) error {
 			}
 		default:
 			return fmt.Errorf("action %s at index %d has unsupported type: %s", action.Name, i, action.Type)
+		}
+	}
+
+	return nil
+}
+
+// validateFileWatchEvents checks if all event names are valid
+func validateFileWatchEvents(events []string) error {
+	validEvents := map[string]bool{
+		"create": true,
+		"write":  true,
+		"remove": true,
+		"rename": true,
+		"chmod":  true,
+	}
+
+	for _, event := range events {
+		if !validEvents[event] {
+			return fmt.Errorf("invalid filewatch event: '%s'. Valid events are: create, write, remove, rename, chmod", event)
 		}
 	}
 

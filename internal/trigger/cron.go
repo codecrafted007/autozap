@@ -1,6 +1,7 @@
 package trigger
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -22,7 +23,7 @@ func completeWorkflowExecutionInDB(id int64, status string, errorMsg *string, du
 	return database.CompleteWorkflowExecution(id, status, errorMsg, duration)
 }
 
-func StartCronTrigger(wf *workflow.Workflow) error {
+func StartCronTrigger(ctx context.Context, wf *workflow.Workflow) error {
 	// Register workflow in the registry
 	server.GetRegistry().RegisterWorkflow(wf)
 
@@ -155,12 +156,39 @@ func StartCronTrigger(wf *workflow.Workflow) error {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			entry := c.Entry(entryId)
-			if !entry.Next.IsZero() {
-				server.GetRegistry().UpdateNextExecution(wf.Name, entry.Next)
+		for {
+			select {
+			case <-ctx.Done():
+				logger.L().Infow("Stopping next execution updater for workflow",
+					"workflow_name", wf.Name,
+					"reason", "context cancelled")
+				return
+			case <-ticker.C:
+				entry := c.Entry(entryId)
+				if !entry.Next.IsZero() {
+					server.GetRegistry().UpdateNextExecution(wf.Name, entry.Next)
+				}
 			}
 		}
+	}()
+
+	// Watch for context cancellation and stop the cron scheduler
+	go func() {
+		<-ctx.Done()
+		logger.L().Infow("Stopping cron trigger for workflow",
+			"workflow_name", wf.Name,
+			"trigger_schedule", wf.Trigger.Schedule,
+			"reason", "context cancelled")
+
+		// Stop the cron scheduler
+		cronCtx := c.Stop()
+		<-cronCtx.Done()
+
+		// Unregister workflow from registry
+		server.GetRegistry().UnregisterWorkflow(wf.Name)
+
+		logger.L().Infow("Cron trigger stopped successfully",
+			"workflow_name", wf.Name)
 	}()
 
 	return nil

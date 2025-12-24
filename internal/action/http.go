@@ -128,19 +128,31 @@ func executeHttpActionOnce(action *workflow.Action) error {
 	if action.ExpectStatus != nil {
 		expectedStatuses := []int{}
 
+		// Handle single status code (int or float64)
 		if singleStatus, ok := action.ExpectStatus.(int); ok {
 			expectedStatuses = append(expectedStatuses, singleStatus)
+		} else if singleStatus, ok := action.ExpectStatus.(float64); ok {
+			// YAML numbers are often unmarshaled as float64
+			expectedStatuses = append(expectedStatuses, int(singleStatus))
 		} else if statusList, ok := action.ExpectStatus.([]interface{}); ok {
-			for _, s := range statusList {
+			// Handle list of status codes
+			for i, s := range statusList {
 				if val, isInt := s.(int); isInt {
 					expectedStatuses = append(expectedStatuses, val)
+				} else if val, isFloat := s.(float64); isFloat {
+					// YAML numbers in arrays are unmarshaled as float64
+					expectedStatuses = append(expectedStatuses, int(val))
 				} else {
-					// Status cannot have other data type other than Int
-					err := fmt.Errorf("HTTP action '%s': invalid type in expect_status list. Expected integer, got %T", action.Name, s)
-					logger.L().Errorw("Invalid type in expect_status list", "error", err, "action_name", action.Name)
+					// Status cannot have other data type other than Int/Float64
+					err := fmt.Errorf("HTTP action '%s': invalid type in expect_status list at index %d. Expected integer, got %T", action.Name, i, s)
+					logger.L().Errorw("Invalid type in expect_status list", "error", err, "action_name", action.Name, "index", i, "type", fmt.Sprintf("%T", s))
 					return err
 				}
 			}
+		} else {
+			err := fmt.Errorf("HTTP action '%s': invalid type for expect_status: %T (expected int or list of ints)", action.Name, action.ExpectStatus)
+			logger.L().Errorw("Invalid type for expect_status", "error", err, "action_name", action.Name)
+			return err
 		}
 		statusMatch := false
 

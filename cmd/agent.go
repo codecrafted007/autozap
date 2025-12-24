@@ -304,7 +304,7 @@ func startWorkflow(ctx context.Context, filePath, logDir string, activeWorkflows
 
 		switch wf.Trigger.Type {
 		case workflow.TriggerTypeCron:
-			if err := trigger.StartCronTrigger(wf); err != nil {
+			if err := trigger.StartCronTrigger(workflowCtx, wf); err != nil {
 				workflowLogger.Errorw("Failed to start cron trigger",
 					"file", filePath,
 					"error", err,
@@ -312,7 +312,7 @@ func startWorkflow(ctx context.Context, filePath, logDir string, activeWorkflows
 				return
 			}
 		case workflow.TriggerTypeFileWatch:
-			if err := trigger.StartFileWatchTrigger(wf); err != nil {
+			if err := trigger.StartFileWatchTrigger(workflowCtx, wf); err != nil {
 				workflowLogger.Errorw("Failed to start file watch trigger",
 					"file", filePath,
 					"error", err,
