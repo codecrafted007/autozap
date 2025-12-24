@@ -197,6 +197,72 @@ Agent mode is the recommended way to run AutoZap in production. It automatically
 
 ---
 
+## 🎛️ autozapctl - Production Control Wrapper
+
+For production use, `autozapctl` provides a comprehensive lifecycle management tool that wraps the AutoZap binary with convenient commands and configuration management.
+
+### Quick Commands
+
+```bash
+# Start AutoZap
+./autozapctl start
+
+# Check status (shows uptime, memory, active workflows)
+./autozapctl status
+
+# View logs
+./autozapctl logs -f
+
+# View workflow statistics
+./autozapctl stats my-workflow
+
+# Stop AutoZap
+./autozapctl stop
+```
+
+### Key Features
+
+✅ **Service Management** - start, stop, restart, status commands
+✅ **Configuration Files** - Load settings from `.autozaprc`
+✅ **Auto Database Path** - No need to specify `--db` flag for queries
+✅ **Health Monitoring** - Built-in status checks and metrics
+✅ **Systemd Integration** - Install as system service with one command
+✅ **Cross-Platform** - Works on Linux and macOS
+
+### Configuration
+
+Create `.autozaprc` in your project directory:
+
+```bash
+WORKFLOWS_DIR="./workflows"
+DATABASE="./autozap.db"
+HTTP_PORT="8080"
+LOG_FILE="./autozap.log"
+WATCH="true"
+```
+
+### Production Deployment (Linux)
+
+```bash
+# Install as systemd service
+sudo ./autozapctl install-service
+
+# Enable on boot
+sudo systemctl enable autozap
+
+# Start service
+sudo systemctl start autozap
+```
+
+### Documentation
+
+- 📖 **[Quick Reference](QUICK_REFERENCE.md)** - Most common commands and examples
+- 📚 **[Full Documentation](AUTOZAPCTL.md)** - Complete command reference and guide
+- 🚀 **[Quick Start Guide](QUICK_START.md)** - Get started in 3 steps
+- 🎯 **[Demo Guide](DEMO.md)** - Interactive demo and examples
+
+---
+
 ## 📊 Monitoring & Observability
 
 ### 🎯 Prometheus Metrics

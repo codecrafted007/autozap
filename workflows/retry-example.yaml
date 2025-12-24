@@ -1,0 +1,65 @@
+name: "retry-example"
+description: "Example workflow demonstrating retry logic with exponential backoff"
+
+trigger:
+  type: "cron"
+  schedule: "*/5 * * * *"  # Every 5 minutes
+
+actions:
+  # Example 1: HTTP action with retry on server errors
+  - type: http
+    name: call-flaky-api
+    url: "https://httpstat.us/503"  # This endpoint returns 503 Service Unavailable
+    method: GET
+    timeout: "10s"
+    retry:
+      maxAttempts: 5
+      initialDelay: "1s"
+      maxDelay: "30s"
+      multiplier: 2.0
+      retryOn:
+        - "timeout"
+        - "status:500"
+        - "status:502"
+        - "status:503"
+        - "status:504"
+
+  # Example 2: Bash action with retry
+  - type: bash
+    name: flaky-command
+    command: |
+      # Simulate a command that fails randomly
+      if [ $((RANDOM % 3)) -eq 0 ]; then
+        echo "Command succeeded!"
+        exit 0
+      else
+        echo "Command failed!"
+        exit 1
+      fi
+    retry:
+      maxAttempts: 3
+      initialDelay: "2s"
+      maxDelay: "10s"
+      multiplier: 2.0
+
+  # Example 3: HTTP action checking API health with retry
+  - type: http
+    name: check-api-health
+    url: "https://httpbin.org/status/200"
+    method: GET
+    timeout: "5s"
+    expectStatus: 200
+    retry:
+      maxAttempts: 4
+      initialDelay: "1s"
+      maxDelay: "60s"
+      multiplier: 2.5
+      retryOn:
+        - "timeout"
+        - "network"
+
+  # Example 4: No retry - fail immediately
+  - type: bash
+    name: no-retry-command
+    command: echo "This action has no retry logic"
+    # No retry config means it will fail immediately on error

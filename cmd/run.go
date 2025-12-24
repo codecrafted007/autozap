@@ -4,6 +4,7 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"github.com/codecrafted007/autozap/internal/database"
 	"github.com/codecrafted007/autozap/internal/logger"
 	"github.com/codecrafted007/autozap/internal/parser"
 	"github.com/codecrafted007/autozap/internal/trigger"
@@ -19,10 +20,21 @@ var runCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		workflowFile := args[0]
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		dbPath, _ := cmd.Flags().GetString("db")
 
 		if dryRun {
 			logger.L().Info("[DRY RUN MODE] No actions will be executed")
 		}
+
+		// Initialize database
+		if err := database.InitDB(dbPath); err != nil {
+			logger.L().Errorw("Failed to initialize database",
+				"error", err,
+				"db_path", dbPath,
+			)
+			return
+		}
+		defer database.CloseDB()
 
 		logger.L().Infof("Attempting to run workflow from file: %s", workflowFile)
 		logger.L().Infow("Workflow processing initiated",
@@ -116,4 +128,5 @@ func init() {
 
 	// Add flags
 	runCmd.Flags().Bool("dry-run", false, "Show what would be executed without running actions")
+	runCmd.Flags().String("db", "./data/autozap.db", "Database file path")
 }

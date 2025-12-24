@@ -1,0 +1,27 @@
+[Unit]
+Description=AutoZap - Workflow Automation Engine
+Documentation=https://github.com/codecrafted007/autozap
+After=network.target
+
+[Service]
+Type=simple
+User=autozap
+Group=autozap
+WorkingDirectory=/opt/autozap
+ExecStart=/opt/autozap/autozapctl start --foreground
+ExecStop=/opt/autozap/autozapctl stop
+Restart=on-failure
+RestartSec=10s
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/autozap
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -5,13 +5,27 @@ import (
 	"time"
 
 	"github.com/codecrafted007/autozap/internal/action"
+	"github.com/codecrafted007/autozap/internal/database"
 	"github.com/codecrafted007/autozap/internal/logger"
 	"github.com/codecrafted007/autozap/internal/metrics"
+	"github.com/codecrafted007/autozap/internal/server"
 	"github.com/codecrafted007/autozap/internal/workflow"
 	"github.com/robfig/cron/v3"
 )
 
+// Helper functions for database operations
+func startWorkflowExecutionInDB(workflowName, triggerType string) (int64, error) {
+	return database.StartWorkflowExecution(workflowName, triggerType)
+}
+
+func completeWorkflowExecutionInDB(id int64, status string, errorMsg *string, duration time.Duration) error {
+	return database.CompleteWorkflowExecution(id, status, errorMsg, duration)
+}
+
 func StartCronTrigger(wf *workflow.Workflow) error {
+	// Register workflow in the registry
+	server.GetRegistry().RegisterWorkflow(wf)
+
 	c := cron.New()
 
 	entryId, err := c.AddFunc(wf.Trigger.Schedule, func() {
@@ -26,8 +40,18 @@ func StartCronTrigger(wf *workflow.Workflow) error {
 		// Track workflow execution time
 		workflowStartTime := time.Now()
 		workflowStatus := "success"
+		var workflowError *string
+
+		// Start workflow execution in database
+		workflowExecID, err := startWorkflowExecutionInDB(wf.Name, string(workflow.TriggerTypeCron))
+		if err != nil {
+			logger.L().Errorw("Failed to start workflow execution in database",
+				"workflow_name", wf.Name,
+				"error", err)
+		}
 
 		for i, act := range wf.Actions {
+			var actionError error
 			switch act.Type {
 			case workflow.ActionTypeBash:
 				logger.L().Infow("Attempting to execute Bash Action",
@@ -35,13 +59,16 @@ func StartCronTrigger(wf *workflow.Workflow) error {
 					"action_name", act.Name,
 					"action_index", i,
 					"command", act.Command)
-				if err := action.ExecuteBashAction(&act, wf.Name); err != nil {
+				actionError = action.ExecuteBashAction(&act, wf.Name)
+				if actionError != nil {
 					logger.L().Errorw("Failed to execute Bash Action",
 						"workflow_name", wf.Name,
 						"action_name", act.Name,
 						"action_index", i,
-						"error", err)
+						"error", actionError)
 					workflowStatus = "failed"
+					errMsg := actionError.Error()
+					workflowError = &errMsg
 				}
 			case workflow.ActionTypeHTTP:
 				logger.L().Infow("Attempting to execute HTTP Action",
@@ -50,13 +77,16 @@ func StartCronTrigger(wf *workflow.Workflow) error {
 					"action_index", i,
 					"url", act.URL,
 					"method", act.Method)
-				if err := action.ExecuteHttpAction(&act, wf.Name); err != nil {
+				actionError = action.ExecuteHttpAction(&act, wf.Name)
+				if actionError != nil {
 					logger.L().Errorw("Failed to execute Http Action",
 						"workflow_name", wf.Name,
 						"action_name", act.Name,
 						"action_index", i,
-						"error", err)
+						"error", actionError)
 					workflowStatus = "failed"
+					errMsg := actionError.Error()
+					workflowError = &errMsg
 				}
 			case workflow.ActionTypeCustom:
 				logger.L().Infow("Attempting to execute Custom Action",
@@ -73,12 +103,31 @@ func StartCronTrigger(wf *workflow.Workflow) error {
 					"action_type", act.Type.String(),
 					"error", "unsupported action type")
 				workflowStatus = "failed"
+				errMsg := "unsupported action type: " + act.Type.String()
+				workflowError = &errMsg
 			}
 		}
 
 		// Record workflow execution metrics
 		workflowDuration := time.Since(workflowStartTime)
 		metrics.RecordWorkflowExecution(wf.Name, workflowStatus, workflowDuration)
+
+		// Complete workflow execution in database
+		if workflowExecID > 0 {
+			if err := completeWorkflowExecutionInDB(workflowExecID, workflowStatus, workflowError, workflowDuration); err != nil {
+				logger.L().Errorw("Failed to complete workflow execution in database",
+					"workflow_name", wf.Name,
+					"workflow_exec_id", workflowExecID,
+					"error", err)
+			}
+		}
+
+		// Update registry with execution stats
+		errorMsg := ""
+		if workflowError != nil {
+			errorMsg = *workflowError
+		}
+		server.GetRegistry().UpdateExecutionStats(wf.Name, workflowStatus == "success", errorMsg)
 	})
 
 	if err != nil {
@@ -87,13 +136,32 @@ func StartCronTrigger(wf *workflow.Workflow) error {
 	logger.L().Infof("Cron Job %s scheduled for workflow '%s' with entry ID %d",
 		wf.Trigger.Schedule, wf.Name, entryId)
 	c.Start()
+
+	// Get next execution time
+	entry := c.Entry(entryId)
+	nextRun := entry.Next
+	server.GetRegistry().UpdateNextExecution(wf.Name, nextRun)
+
 	logger.L().Infow("Cron Trigger started for workflow",
 		"workflow_name", wf.Name,
 		"trigger_schedule", wf.Trigger.Schedule,
-		"entry_id", entryId)
+		"entry_id", entryId,
+		"next_run", nextRun)
 
 	// Register workflow info metric
 	metrics.RegisterWorkflow(wf.Name, string(workflow.TriggerTypeCron), wf.Trigger.Schedule)
+
+	// Update next execution time after each run
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			entry := c.Entry(entryId)
+			if !entry.Next.IsZero() {
+				server.GetRegistry().UpdateNextExecution(wf.Name, entry.Next)
+			}
+		}
+	}()
 
 	return nil
 }

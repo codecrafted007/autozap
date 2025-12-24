@@ -1,0 +1,572 @@
+#!/bin/bash
+
+# autozapctl - AutoZap Control Wrapper
+# Production-ready lifecycle management for AutoZap
+# Version: 1.0.0
+
+set -e
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Default configuration
+DEFAULT_WORKFLOWS_DIR="./workflows"
+DEFAULT_DATABASE="./autozap.db"
+DEFAULT_HTTP_PORT="8080"
+DEFAULT_LOG_FILE="./autozap.log"
+DEFAULT_PID_FILE="./autozap.pid"
+
+# Configuration variables
+WORKFLOWS_DIR="$DEFAULT_WORKFLOWS_DIR"
+DATABASE="$DEFAULT_DATABASE"
+HTTP_PORT="$DEFAULT_HTTP_PORT"
+LOG_FILE="$DEFAULT_LOG_FILE"
+PID_FILE="$DEFAULT_PID_FILE"
+WATCH="true"
+LOG_DIR=""
+
+# Script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AUTOZAP_BIN="$SCRIPT_DIR/autozap"
+
+# Print functions
+print_info() {
+    echo -e "${BLUE}ℹ${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}✗${NC} $1"
+}
+
+print_header() {
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  $1${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+# Load configuration from file
+load_config() {
+    local config_files=(
+        "$SCRIPT_DIR/.autozaprc"
+        "$HOME/.autozaprc"
+        "/etc/autozap/config"
+    )
+
+    for config_file in "${config_files[@]}"; do
+        if [ -f "$config_file" ]; then
+            print_info "Loading configuration from: $config_file"
+            # shellcheck disable=SC1090
+            source "$config_file"
+            return 0
+        fi
+    done
+}
+
+# Check if AutoZap binary exists
+check_binary() {
+    if [ ! -f "$AUTOZAP_BIN" ]; then
+        print_error "AutoZap binary not found at: $AUTOZAP_BIN"
+        print_info "Building AutoZap..."
+        if ! go build -mod=mod -o "$AUTOZAP_BIN" "$SCRIPT_DIR"; then
+            print_error "Failed to build AutoZap"
+            exit 1
+        fi
+        print_success "AutoZap built successfully"
+    fi
+}
+
+# Check if AutoZap is running
+is_running() {
+    if [ ! -f "$PID_FILE" ]; then
+        return 1
+    fi
+
+    local pid=$(cat "$PID_FILE")
+    if kill -0 "$pid" 2>/dev/null; then
+        return 0
+    else
+        # Stale PID file
+        rm -f "$PID_FILE"
+        return 1
+    fi
+}
+
+# Get AutoZap PID
+get_pid() {
+    if [ -f "$PID_FILE" ]; then
+        cat "$PID_FILE"
+    else
+        echo ""
+    fi
+}
+
+# Start AutoZap
+cmd_start() {
+    print_header "Starting AutoZap"
+
+    if is_running; then
+        print_warning "AutoZap is already running (PID: $(get_pid))"
+        exit 0
+    fi
+
+    check_binary
+
+    # Build command arguments
+    local cmd_args=("agent" "$WORKFLOWS_DIR")
+    cmd_args+=("--db" "$DATABASE")
+    cmd_args+=("--http-port" "$HTTP_PORT")
+
+    if [ "$WATCH" = "false" ]; then
+        cmd_args+=("--watch=false")
+    fi
+
+    if [ -n "$LOG_DIR" ]; then
+        cmd_args+=("--log-dir" "$LOG_DIR")
+    fi
+
+    # Parse additional arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --workflows-dir)
+                WORKFLOWS_DIR="$2"
+                shift 2
+                ;;
+            --db)
+                DATABASE="$2"
+                shift 2
+                ;;
+            --port)
+                HTTP_PORT="$2"
+                shift 2
+                ;;
+            --log-dir)
+                LOG_DIR="$2"
+                shift 2
+                ;;
+            --no-watch)
+                WATCH="false"
+                shift
+                ;;
+            --dry-run)
+                cmd_args+=("--dry-run")
+                shift
+                ;;
+            --foreground)
+                # Run in foreground
+                print_info "Starting AutoZap in foreground mode..."
+                exec "$AUTOZAP_BIN" "${cmd_args[@]}"
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+
+    print_info "Configuration:"
+    echo "  Workflows: $WORKFLOWS_DIR"
+    echo "  Database:  $DATABASE"
+    echo "  HTTP Port: $HTTP_PORT"
+    echo "  Log File:  $LOG_FILE"
+    echo "  Hot Reload: $WATCH"
+    [ -n "$LOG_DIR" ] && echo "  Log Dir:   $LOG_DIR"
+    echo ""
+
+    # Start in background
+    print_info "Starting AutoZap agent..."
+    nohup "$AUTOZAP_BIN" "${cmd_args[@]}" > "$LOG_FILE" 2>&1 &
+    local pid=$!
+    echo "$pid" > "$PID_FILE"
+
+    # Wait for server to be ready
+    print_info "Waiting for server to be ready..."
+    for i in {1..30}; do
+        if curl -s "http://localhost:$HTTP_PORT/health" > /dev/null 2>&1; then
+            print_success "AutoZap started successfully (PID: $pid)"
+            echo ""
+            print_info "Dashboard:  ${BLUE}http://localhost:$HTTP_PORT/dashboard${NC}"
+            print_info "Metrics:    ${BLUE}http://localhost:$HTTP_PORT/metrics${NC}"
+            print_info "Health:     ${BLUE}http://localhost:$HTTP_PORT/health${NC}"
+            echo ""
+            return 0
+        fi
+        sleep 1
+    done
+
+    print_error "Server failed to start within 30 seconds"
+    print_info "Check logs: tail -f $LOG_FILE"
+    exit 1
+}
+
+# Stop AutoZap
+cmd_stop() {
+    print_header "Stopping AutoZap"
+
+    if ! is_running; then
+        print_warning "AutoZap is not running"
+        exit 0
+    fi
+
+    local pid=$(get_pid)
+    print_info "Stopping AutoZap (PID: $pid)..."
+
+    kill "$pid" 2>/dev/null || true
+
+    # Wait for process to stop
+    for i in {1..10}; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            rm -f "$PID_FILE"
+            print_success "AutoZap stopped successfully"
+            return 0
+        fi
+        sleep 1
+    done
+
+    # Force kill if still running
+    print_warning "Force stopping AutoZap..."
+    kill -9 "$pid" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    print_success "AutoZap stopped"
+}
+
+# Restart AutoZap
+cmd_restart() {
+    print_header "Restarting AutoZap"
+
+    if is_running; then
+        cmd_stop
+        sleep 2
+    fi
+
+    cmd_start "$@"
+}
+
+# Show status
+cmd_status() {
+    print_header "AutoZap Status"
+
+    if is_running; then
+        local pid=$(get_pid)
+        print_success "AutoZap is running (PID: $pid)"
+        echo ""
+
+        # Get uptime
+        if command -v ps &> /dev/null; then
+            local uptime=$(ps -p "$pid" -o etime= 2>/dev/null | tr -d ' ' || echo "unknown")
+            echo "  Uptime:    $uptime"
+        fi
+
+        # Get memory usage
+        if command -v ps &> /dev/null; then
+            local mem=$(ps -p "$pid" -o rss= 2>/dev/null | tr -d ' ' || echo "unknown")
+            if [ "$mem" != "unknown" ]; then
+                mem=$((mem / 1024))
+                echo "  Memory:    ${mem}MB"
+            fi
+        fi
+
+        echo "  Config:    $(find_config_file)"
+        echo "  Workflows: $WORKFLOWS_DIR"
+        echo "  Database:  $DATABASE"
+        echo "  Log File:  $LOG_FILE"
+        echo ""
+
+        # Try to get workflow count
+        if curl -s "http://localhost:$HTTP_PORT/api/workflows/active" > /dev/null 2>&1; then
+            local workflow_count=$(curl -s "http://localhost:$HTTP_PORT/api/workflows/active" | grep -o '"name"' | wc -l | tr -d ' ')
+            echo "  Active Workflows: $workflow_count"
+            echo ""
+
+            print_info "Dashboard: ${BLUE}http://localhost:$HTTP_PORT/dashboard${NC}"
+        fi
+    else
+        print_warning "AutoZap is not running"
+    fi
+}
+
+# Find config file being used
+find_config_file() {
+    local config_files=(
+        "$SCRIPT_DIR/.autozaprc"
+        "$HOME/.autozaprc"
+        "/etc/autozap/config"
+    )
+
+    for config_file in "${config_files[@]}"; do
+        if [ -f "$config_file" ]; then
+            echo "$config_file"
+            return 0
+        fi
+    done
+    echo "none (using defaults)"
+}
+
+# View logs
+cmd_logs() {
+    if [ "$1" = "-f" ] || [ "$1" = "--follow" ]; then
+        tail -f "$LOG_FILE"
+    else
+        tail -n 50 "$LOG_FILE"
+    fi
+}
+
+# History command
+cmd_history() {
+    check_binary
+    "$AUTOZAP_BIN" history --db "$DATABASE" "$@"
+}
+
+# Stats command
+cmd_stats() {
+    check_binary
+    "$AUTOZAP_BIN" stats "$@" --db "$DATABASE"
+}
+
+# Failures command
+cmd_failures() {
+    check_binary
+    "$AUTOZAP_BIN" failures --db "$DATABASE" "$@"
+}
+
+# Validate workflow
+cmd_validate() {
+    if [ -z "$1" ]; then
+        print_error "Please specify a workflow file to validate"
+        echo "Usage: autozapctl validate <workflow.yaml>"
+        exit 1
+    fi
+
+    check_binary
+
+    if [ ! -f "$1" ]; then
+        print_error "Workflow file not found: $1"
+        exit 1
+    fi
+
+    print_info "Validating workflow: $1"
+    "$AUTOZAP_BIN" run "$1" --dry-run
+}
+
+# Open dashboard
+cmd_open() {
+    if ! is_running; then
+        print_error "AutoZap is not running. Start it first with: autozapctl start"
+        exit 1
+    fi
+
+    local url="http://localhost:$HTTP_PORT/dashboard"
+    print_info "Opening dashboard: $url"
+
+    case "$(uname -s)" in
+        Darwin*)
+            open "$url" 2>/dev/null || true
+            ;;
+        Linux*)
+            if command -v xdg-open &> /dev/null; then
+                xdg-open "$url" 2>/dev/null || true
+            elif command -v gnome-open &> /dev/null; then
+                gnome-open "$url" 2>/dev/null || true
+            else
+                print_warning "Could not detect browser. Please open: $url"
+            fi
+            ;;
+        *)
+            print_warning "Unsupported platform. Please open: $url"
+            ;;
+    esac
+}
+
+# Install systemd service (Linux only)
+cmd_install_service() {
+    if [ "$(uname -s)" != "Linux" ]; then
+        print_error "Service installation is only supported on Linux"
+        exit 1
+    fi
+
+    if [ "$EUID" -ne 0 ]; then
+        print_error "Please run with sudo to install systemd service"
+        exit 1
+    fi
+
+    local service_file="/etc/systemd/system/autozap.service"
+
+    print_info "Creating systemd service file: $service_file"
+
+    cat > "$service_file" <<EOF
+[Unit]
+Description=AutoZap - Workflow Automation Engine
+After=network.target
+
+[Service]
+Type=simple
+User=$SUDO_USER
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=$SCRIPT_DIR/autozapctl start --foreground
+ExecStop=$SCRIPT_DIR/autozapctl stop
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    print_success "Service installed successfully"
+    echo ""
+    print_info "Manage the service with:"
+    echo "  sudo systemctl start autozap"
+    echo "  sudo systemctl stop autozap"
+    echo "  sudo systemctl status autozap"
+    echo "  sudo systemctl enable autozap  # Start on boot"
+}
+
+# Show help
+cmd_help() {
+    cat <<EOF
+autozapctl - AutoZap Control Wrapper
+
+USAGE:
+    autozapctl <command> [options]
+
+COMMANDS:
+    Service Management:
+        start [options]         Start AutoZap agent
+        stop                    Stop AutoZap agent
+        restart [options]       Restart AutoZap agent
+        status                  Show running status and metrics
+
+    Log Management:
+        logs [-f|--follow]      View logs (use -f to follow)
+
+    Data Queries:
+        history [options]       View execution history
+        stats <workflow>        View workflow statistics
+        failures [options]      View recent failures
+
+    Utilities:
+        validate <file>         Validate workflow file
+        open                    Open dashboard in browser
+        install-service         Install as systemd service (Linux, requires sudo)
+        help                    Show this help message
+
+START OPTIONS:
+    --workflows-dir <dir>       Workflows directory (default: $DEFAULT_WORKFLOWS_DIR)
+    --db <path>                 Database path (default: $DEFAULT_DATABASE)
+    --port <port>               HTTP port (default: $DEFAULT_HTTP_PORT)
+    --log-dir <dir>             Per-workflow log directory
+    --no-watch                  Disable hot-reload
+    --dry-run                   Show what would be executed
+    --foreground                Run in foreground (for systemd)
+
+CONFIGURATION:
+    Configuration is loaded from (in order):
+        1. $SCRIPT_DIR/.autozaprc
+        2. ~/.autozaprc
+        3. /etc/autozap/config
+
+    Example .autozaprc:
+        WORKFLOWS_DIR="./workflows"
+        DATABASE="./autozap.db"
+        HTTP_PORT="8080"
+        LOG_FILE="./autozap.log"
+
+EXAMPLES:
+    # Start AutoZap
+    autozapctl start
+
+    # Start with custom config
+    autozapctl start --workflows-dir /opt/workflows --port 9090
+
+    # Check status
+    autozapctl status
+
+    # View logs
+    autozapctl logs -f
+
+    # View workflow statistics
+    autozapctl stats my-workflow
+
+    # Validate a workflow file
+    autozapctl validate workflows/my-workflow.yaml
+
+    # Open dashboard
+    autozapctl open
+
+    # Install as system service (Linux)
+    sudo autozapctl install-service
+
+EOF
+}
+
+# Main command dispatcher
+main() {
+    # Load configuration
+    load_config
+
+    # Parse command
+    local command="${1:-help}"
+    shift || true
+
+    case "$command" in
+        start)
+            cmd_start "$@"
+            ;;
+        stop)
+            cmd_stop
+            ;;
+        restart)
+            cmd_restart "$@"
+            ;;
+        status)
+            cmd_status
+            ;;
+        logs)
+            cmd_logs "$@"
+            ;;
+        history)
+            cmd_history "$@"
+            ;;
+        stats)
+            cmd_stats "$@"
+            ;;
+        failures)
+            cmd_failures "$@"
+            ;;
+        validate)
+            cmd_validate "$@"
+            ;;
+        open)
+            cmd_open
+            ;;
+        install-service)
+            cmd_install_service
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            print_error "Unknown command: $command"
+            echo ""
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+# Run main
+main "$@"

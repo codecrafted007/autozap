@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/codecrafted007/autozap/internal/database"
 	"github.com/codecrafted007/autozap/internal/logger"
 	"github.com/codecrafted007/autozap/internal/metrics"
 	"github.com/codecrafted007/autozap/internal/parser"
@@ -48,10 +49,21 @@ Example:
 		logDir, _ := cmd.Flags().GetString("log-dir")
 		httpPort, _ := cmd.Flags().GetInt("http-port")
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		dbPath, _ := cmd.Flags().GetString("db")
 
 		if dryRun {
 			logger.L().Info("[DRY RUN MODE] No workflows will be executed")
 		}
+
+		// Initialize database
+		if err := database.InitDB(dbPath); err != nil {
+			logger.L().Errorw("Failed to initialize database",
+				"error", err,
+				"db_path", dbPath,
+			)
+			return
+		}
+		defer database.CloseDB()
 
 		logger.L().Infow("Starting AutoZap Agent",
 			"workflow_directory", workflowDir,
@@ -59,6 +71,7 @@ Example:
 			"log_directory", logDir,
 			"http_port", httpPort,
 			"dry_run", dryRun,
+			"db_path", dbPath,
 		)
 
 		// Start HTTP server for metrics and health endpoints
@@ -443,4 +456,5 @@ func init() {
 	agentCmd.Flags().String("log-dir", "", "Directory for per-workflow log files (default: stdout)")
 	agentCmd.Flags().Int("http-port", 8080, "HTTP port for metrics and health endpoints")
 	agentCmd.Flags().Bool("dry-run", false, "Show what would be executed without starting workflows")
+	agentCmd.Flags().String("db", "./data/autozap.db", "Database file path")
 }

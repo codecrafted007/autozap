@@ -8,6 +8,7 @@ import (
 
 	"github.com/codecrafted007/autozap/internal/logger"
 	"github.com/codecrafted007/autozap/internal/metrics"
+	"github.com/codecrafted007/autozap/internal/retry"
 	"github.com/codecrafted007/autozap/internal/workflow"
 )
 
@@ -19,13 +20,34 @@ func ExecuteBashAction(action *workflow.Action, workflowName ...string) error {
 		return fmt.Errorf("bash action command cannot be empty")
 	}
 
+	// Track total execution time (including retries)
+	totalStartTime := time.Now()
+
+	// Execute with retry logic
+	err := retry.ExecuteWithRetry(action.Name, action.Retry, func() error {
+		return executeBashActionOnce(action, workflowName...)
+	})
+
+	totalDuration := time.Since(totalStartTime)
+
+	// Record metrics if workflow name is provided
+	if len(workflowName) > 0 && workflowName[0] != "" {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		metrics.RecordActionExecution(workflowName[0], action.Name, string(workflow.ActionTypeBash), status, totalDuration)
+	}
+
+	return err
+}
+
+// executeBashActionOnce executes a bash action once without retry logic
+func executeBashActionOnce(action *workflow.Action, workflowName ...string) error {
 	logger.L().Infow("Executing Bash Action",
 		"action_name", action.Name,
 		"command", action.Command,
 	)
-
-	// Track action execution time
-	startTime := time.Now()
 
 	cmd := exec.Command("bash", "-c", action.Command)
 
@@ -34,22 +56,12 @@ func ExecuteBashAction(action *workflow.Action, workflowName ...string) error {
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	duration := time.Since(startTime)
 
 	logFields := []interface{}{
 		"action_name", action.Name,
 		"command", action.Command,
 		"stdout", stdout.String(),
 		"stderr", stderr.String(),
-	}
-
-	// Record metrics if workflow name is provided
-	if len(workflowName) > 0 && workflowName[0] != "" {
-		status := "success"
-		if err != nil {
-			status = "failed"
-		}
-		metrics.RecordActionExecution(workflowName[0], action.Name, string(workflow.ActionTypeBash), status, duration)
 	}
 
 	if err != nil {
@@ -64,5 +76,4 @@ func ExecuteBashAction(action *workflow.Action, workflowName ...string) error {
 	}
 	logger.L().Infow("Bash Action completed successfully", logFields...)
 	return nil
-
 }

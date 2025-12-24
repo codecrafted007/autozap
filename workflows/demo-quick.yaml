@@ -1,0 +1,29 @@
+name: "demo-quick"
+description: "Quick demo workflow that runs every minute for dashboard demonstration"
+
+trigger:
+  type: "cron"
+  schedule: "*/1 * * * *"  # Every minute for quick demo
+
+actions:
+  - type: bash
+    name: print-timestamp
+    command: |
+      echo "Demo workflow executed at $(date)"
+      echo "Random number: $RANDOM"
+      exit 0
+
+  - type: http
+    name: check-httpbin
+    url: "https://httpbin.org/status/200"
+    method: GET
+    timeout: "10s"
+    expectStatus: 200
+    retry:
+      maxAttempts: 3
+      initialDelay: "1s"
+      maxDelay: "5s"
+      multiplier: 2.0
+      retryOn:
+        - "timeout"
+        - "network"

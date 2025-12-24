@@ -106,4 +106,16 @@ type Action struct {
 
 	FunctionName string                 `yaml:"functionName,omitempty"`
 	Arguments    map[string]interface{} `yaml:"arguments,omitempty"` // using interface for flexibility
+
+	// Retry configuration
+	Retry *RetryConfig `yaml:"retry,omitempty"`
+}
+
+// RetryConfig defines retry behavior for an action
+type RetryConfig struct {
+	MaxAttempts  int      `yaml:"maxAttempts"`            // Maximum number of retry attempts (default: 3)
+	InitialDelay string   `yaml:"initialDelay,omitempty"` // Initial delay before first retry (default: "1s")
+	MaxDelay     string   `yaml:"maxDelay,omitempty"`     // Maximum delay between retries (default: "60s")
+	Multiplier   float64  `yaml:"multiplier,omitempty"`   // Backoff multiplier (default: 2.0)
+	RetryOn      []string `yaml:"retryOn,omitempty"`      // Conditions to retry on: "timeout", "error", "status:500", etc.
 }

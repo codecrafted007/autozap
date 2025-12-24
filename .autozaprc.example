@@ -1,0 +1,27 @@
+# AutoZap Configuration File
+# Copy this file to one of the following locations:
+#   - .autozaprc (in the same directory as autozapctl)
+#   - ~/.autozaprc (in your home directory)
+#   - /etc/autozap/config (system-wide configuration)
+
+# Workflows directory
+WORKFLOWS_DIR="./workflows"
+
+# SQLite database path
+DATABASE="./autozap.db"
+
+# HTTP server port for dashboard and metrics
+HTTP_PORT="8080"
+
+# Log file path
+LOG_FILE="./autozap.log"
+
+# PID file path
+PID_FILE="./autozap.pid"
+
+# Enable hot-reload for workflow changes (true/false)
+WATCH="true"
+
+# Per-workflow log directory (optional)
+# Uncomment to enable per-workflow logging
+# LOG_DIR="./logs"

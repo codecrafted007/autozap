@@ -2,15 +2,20 @@ package server
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/codecrafted007/autozap/internal/database"
 	"github.com/codecrafted007/autozap/internal/logger"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
+
+//go:embed dashboard/*
+var dashboardFS embed.FS
 
 // Server holds the HTTP server for metrics and health endpoints
 type Server struct {
@@ -60,6 +65,24 @@ var (
 func NewServer(port int) *Server {
 	mux := http.NewServeMux()
 
+	// Dashboard UI (embedded files at /dashboard/)
+	mux.Handle("/dashboard/", http.FileServer(http.FS(dashboardFS)))
+
+	// Redirect root to dashboard
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/dashboard/", http.StatusFound)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	// API endpoints
+	mux.HandleFunc("/api/workflows/active", activeWorkflowsAPIHandler)
+	mux.HandleFunc("/api/workflows/history", historyAPIHandler)
+	mux.HandleFunc("/api/workflows/stats", statsAPIHandler)
+	mux.HandleFunc("/api/workflows/failures", failuresAPIHandler)
+
 	// Metrics endpoint
 	mux.Handle("/metrics", promhttp.Handler())
 
@@ -88,9 +111,10 @@ func NewServer(port int) *Server {
 // Start starts the HTTP server in a goroutine
 func (s *Server) Start() error {
 	s.logger.Infof("Starting HTTP server on port %d", s.port)
-	s.logger.Infof("Metrics available at: http://localhost:%d/metrics", s.port)
-	s.logger.Infof("Health check at: http://localhost:%d/health", s.port)
-	s.logger.Infof("Status at: http://localhost:%d/status", s.port)
+	s.logger.Infof("🎨 Dashboard available at: http://localhost:%d/dashboard", s.port)
+	s.logger.Infof("📊 Metrics available at: http://localhost:%d/metrics", s.port)
+	s.logger.Infof("❤️  Health check at: http://localhost:%d/health", s.port)
+	s.logger.Infof("📈 Status at: http://localhost:%d/status", s.port)
 
 	go func() {
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -194,4 +218,95 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm%ds", minutes, seconds)
 	}
 	return fmt.Sprintf("%ds", seconds)
+}
+
+// API Handlers
+
+// activeWorkflowsAPIHandler handles /api/workflows/active
+func activeWorkflowsAPIHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	workflows := GetRegistry().GetAllWorkflows()
+	json.NewEncoder(w).Encode(workflows)
+}
+
+// historyAPIHandler handles /api/workflows/history
+func historyAPIHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	limit := 50
+	executions, err := database.GetAllWorkflowHistory(limit)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get history: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(executions)
+}
+
+// statsAPIHandler handles /api/workflows/stats
+func statsAPIHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Get recent executions to calculate stats
+	since := time.Now().AddDate(0, 0, -7) // Last 7 days
+	executions, err := database.GetAllWorkflowHistory(1000)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get stats: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Calculate aggregate stats
+	workflowStats := make(map[string]*database.WorkflowStats)
+	for _, exec := range executions {
+		if exec.StartedAt.Before(since) {
+			continue
+		}
+
+		if _, exists := workflowStats[exec.WorkflowName]; !exists {
+			workflowStats[exec.WorkflowName] = &database.WorkflowStats{
+				WorkflowName: exec.WorkflowName,
+			}
+		}
+
+		stats := workflowStats[exec.WorkflowName]
+		stats.TotalExecutions++
+
+		if exec.Status == "success" {
+			stats.SuccessCount++
+		} else if exec.Status == "failed" {
+			stats.FailedCount++
+		}
+
+		if exec.DurationMs != nil {
+			stats.AvgDurationMs = (stats.AvgDurationMs*float64(stats.TotalExecutions-1) + float64(*exec.DurationMs)) / float64(stats.TotalExecutions)
+		}
+	}
+
+	// Calculate success rates
+	for _, stats := range workflowStats {
+		if stats.TotalExecutions > 0 {
+			stats.SuccessRate = (float64(stats.SuccessCount) / float64(stats.TotalExecutions)) * 100
+		}
+	}
+
+	json.NewEncoder(w).Encode(workflowStats)
+}
+
+// failuresAPIHandler handles /api/workflows/failures
+func failuresAPIHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	since := time.Now().Add(-24 * time.Hour) // Last 24 hours
+	failures, err := database.GetFailedExecutions(since, 50)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get failures: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(failures)
 }

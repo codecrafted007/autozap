@@ -5,8 +5,10 @@ import (
 	"time"
 
 	"github.com/codecrafted007/autozap/internal/action"
+	"github.com/codecrafted007/autozap/internal/database"
 	"github.com/codecrafted007/autozap/internal/logger"
 	"github.com/codecrafted007/autozap/internal/metrics"
+	"github.com/codecrafted007/autozap/internal/server"
 	"github.com/codecrafted007/autozap/internal/workflow"
 	"github.com/fsnotify/fsnotify"
 )
@@ -62,6 +64,9 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 		"watching_path", wf.Trigger.Path,
 		"events_to_watch", wf.Trigger.Events,
 	)
+
+	// Register workflow in the registry
+	server.GetRegistry().RegisterWorkflow(wf)
 
 	// Register workflow info metric
 	metrics.RegisterWorkflow(wf.Name, string(workflow.TriggerTypeFileWatch), wf.Trigger.Path)
@@ -135,9 +140,19 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 					// Track workflow execution time
 					workflowStartTime := time.Now()
 					workflowStatus := "success"
+					var workflowError *string
+
+					// Start workflow execution in database
+					workflowExecID, err := database.StartWorkflowExecution(wf.Name, string(workflow.TriggerTypeFileWatch))
+					if err != nil {
+						logger.L().Errorw("Failed to start workflow execution in database",
+							"workflow_name", wf.Name,
+							"error", err)
+					}
 
 					// Exceute actions
 					for i, act := range wf.Actions {
+						var actionError error
 						switch act.Type {
 						case workflow.ActionTypeBash:
 							logger.L().Infow("Attempting to execute Bash Action",
@@ -145,13 +160,16 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 								"action_name", act.Name,
 								"action_index", i,
 								"command", act.Command)
-							if err := action.ExecuteBashAction(&act, wf.Name); err != nil{
+							actionError = action.ExecuteBashAction(&act, wf.Name)
+							if actionError != nil{
 								logger.L().Errorw("Failed to execute Bash Action",
 									"workflow_name", wf.Name,
 									"action_name", act.Name,
 									"action_index", i,
-									"error", err)
+									"error", actionError)
 								workflowStatus = "failed"
+								errMsg := actionError.Error()
+								workflowError = &errMsg
 							}
 						case workflow.ActionTypeHTTP:
 							logger.L().Infow("Attempting to execute HTTP Action",
@@ -160,13 +178,16 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 								"action_index", i,
 								"url", act.URL,
 								"method", act.Method)
-							if err := action.ExecuteHttpAction(&act, wf.Name); err != nil {
+							actionError = action.ExecuteHttpAction(&act, wf.Name)
+							if actionError != nil {
 								logger.L().Errorw("Failed to execute HTTP Action",
 									"workflow_name", wf.Name,
 									"action_name", act.Name,
 									"action_index", i,
-									"error", err)
+									"error", actionError)
 								workflowStatus = "failed"
+								errMsg := actionError.Error()
+								workflowError = &errMsg
 							}
 						case workflow.ActionTypeCustom:
 							logger.L().Infow("Custom action type detected, but execution not yet implemented (triggered by filewatch).",
@@ -184,12 +205,31 @@ func StartFileWatchTrigger(wf *workflow.Workflow) error {
 								"action_type", act.Type.String(),
 							)
 							workflowStatus = "failed"
+							errMsg := "unsupported action type: " + act.Type.String()
+							workflowError = &errMsg
 						}
 					} // End of execte actions
 
 					// Record workflow execution metrics
 					workflowDuration := time.Since(workflowStartTime)
 					metrics.RecordWorkflowExecution(wf.Name, workflowStatus, workflowDuration)
+
+					// Complete workflow execution in database
+					if workflowExecID > 0 {
+						if err := database.CompleteWorkflowExecution(workflowExecID, workflowStatus, workflowError, workflowDuration); err != nil {
+							logger.L().Errorw("Failed to complete workflow execution in database",
+								"workflow_name", wf.Name,
+								"workflow_exec_id", workflowExecID,
+								"error", err)
+						}
+					}
+
+					// Update registry with execution stats
+					errorMsg := ""
+					if workflowError != nil {
+						errorMsg = *workflowError
+					}
+					server.GetRegistry().UpdateExecutionStats(wf.Name, workflowStatus == "success", errorMsg)
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
