@@ -76,11 +76,11 @@ AutoZap includes **7 battle-tested workflows** for real-world DevOps scenarios. 
 
 ### What Makes These Production-Ready?
 
-✅ **Error Handling** - Proper exit codes, validation, and fallback logic
-✅ **Configurable Thresholds** - Adjust alerts and schedules for your environment
-✅ **Integration Ready** - Slack, PagerDuty, OpsGenie webhooks included
-✅ **Best Practices** - Follows SRE principles for monitoring and automation
-✅ **Well Documented** - Comprehensive README with customization guide
+- ✅ **Error Handling** - Proper exit codes, validation, and fallback logic
+- ✅ **Configurable Thresholds** - Adjust alerts and schedules for your environment
+- ✅ **Integration Ready** - Slack, PagerDuty, OpsGenie webhooks included
+- ✅ **Best Practices** - Follows SRE principles for monitoring and automation
+- ✅ **Well Documented** - Comprehensive README with customization guide
 
 > 📚 **[View All Workflows →](workflows/README.md)** | Includes setup instructions, customization guide, and troubleshooting
 
